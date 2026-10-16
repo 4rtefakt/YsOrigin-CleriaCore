@@ -91,6 +91,7 @@
                     // sand2 floor dy is clamped to [-0.015, 0.03]; on sand2 (+0x4b9) xz x0.25 and a
                     // rising dy x0.25; the settle keeps such an actor grounded above its floor.
                     enemy_surfaces(a);
+                    enemy_wade_step(a);                 // FUN_0045c490's wading rings (view_water_rings.inl)
                     // ENEMY_WATER.md W2 (§1.3; FUN_0045a510 has no cast test in these rows): submerged (+0x38a) dy
                     // is clamped to [-0.05, +0.1] (0x45a63f), the timer steps 0.0118 and the landing margin is
                     // 0.01 (0x45beee, 0x45be61), xz x 0.8 (x 0.9 with blessing bit 1; 0x45a82a..0x45a87d), and on

@@ -102,6 +102,9 @@ struct EnemyAi {
     bool wading = false, entered = false;   // +0x389, +0x38b (water.hpp; ENEMY_WATER.md §1.2)
     std::uint8_t splash_cd = 0, bubble_t = 0, breath_t = 0;   // +0x4c3, +0x4c5, +0x4c6: FUN_0045c490's splash / bubble pacing
     bool water_seen = false;                // the port's: the water test has run once (stands for the placement's probe)
+    std::uint8_t wade_ticks = 0;            // +0x39b: the steps spent wading or submerged (the wading rings' pace)
+    Vec3 wade_prev{};                       // the origin at the last wading test (stands for +0x3d4)
+    bool wade_seen = false;
     std::uint16_t floor_ticks = 0;          // +0x4c8: the action player's lava / blood floor counter (0x47a629)
     // The move primitive's swim block wrote the origin +0x50..+0x58 (0x477e3e the whole point, 0x477e5e / 0x477eee
     // y alone): the host places the actor there before its integrator and clears the flag.

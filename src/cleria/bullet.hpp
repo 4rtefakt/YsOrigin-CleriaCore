@@ -58,6 +58,7 @@ struct Bullet {
     std::uint32_t u194 = 0;       // +0x194: kinds 0x1b / 0x1e the tick count; kind 0x1f the first-tick latch
     float y190 = 0;               // +0x190
     std::uint8_t n178 = 0;        // +0x178 (a byte): kind 8 the handler's tick count
+    bool wet = false;             // its effect's +0x1da: kind 0x29 has rung the water once
     // Kind 0x24 (FUN_0059fa30, Nygtilger's plasma ball; BULLET_KINDS.md §5), written by the caster after the spawn:
     int carrier = -1;             // +0x1a8: the carrier segment (the host's id for Env::carrier; -1 = none)
     Vec3 v1ac{};                  // +0x1ac: the carrier-local vector v
@@ -147,6 +148,13 @@ struct Env {
     // Kind 0x23 (the poison ball): flag 221 [0x76bc90] (the boss is dead: every ball goes), the player's body
     // radius P+0x68 and speed P+0x310, and the boss point the balls bounce off (*[0x76a2c4]: the head, or the
     // hoop centre +0x108 in mode 4).
+    // The water rings and wakes (water_rings.hpp, WATER_RINGS.md): FUN_00454f40 (`heading` < -100: a round ring)
+    // and FUN_00454ff0 at `pos` with `scale`, kind 0. None = not drawn (no RNG in either).
+    std::function<void(const Vec3& pos, float scale, float heading)> ring;
+    // Kind 0x29's splash in water: the inline EF2 0x49 at the bullet (side 0, power 0, knock 1, rtype 0, cls 0xff).
+    std::function<void(const Vec3& pos)> splash;
+    int water_mode = 0;           // DAT_0076a544: 1 = the room has a water surface (kind 0x29's probe)
+    bool group40 = false;         // byte 0x7494d7: a kind-0x29 drop that reaches the water dies there
     bool flag221 = false;
     float player_r = 0.45f, player_speed = 0;
     bool boss_point_on = false;

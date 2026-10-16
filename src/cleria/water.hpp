@@ -4,7 +4,7 @@
 // the surface +0x320, for any actor. It runs in the handler tail, after the brain, the mover and the integrator:
 // a brain reads last tick's bytes. The caller casts the ray (up 50 from `probe_y` against collision set 1) and
 // owns the presentation (splash, bubbles, ripples); this is the state only.
-// [not modelled here] the cooldown bytes +0x4c3..+0x4c6, the ripple counter +0x39b, +0x394.
+// [not modelled here] the cooldown bytes +0x4c3..+0x4c6, +0x394; the ripple counter +0x39b is water_rings.hpp's Wade.
 #include "cleria/physics_player.hpp"
 
 namespace cleria {

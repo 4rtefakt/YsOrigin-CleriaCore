@@ -195,8 +195,10 @@ inline int cast_load_extra_aia(int cast_id, bool school_outfit) {
 // A ground runner: it moves `step` a tick along a fixed heading on the floor and, every P + 1 ticks, the host
 // spawns one EF2 (FUN_00450410: rot (0, -pi/2 - heading, 0), scale s, power, knock 0, rtype 0, status 0, cls 1)
 // at its position. It hits nothing itself. Also Napishtim Adol's Ignis (anime_Special a0 = 1).
-// [not modelled] the water probe (life -= 2 a tick in water, vy >= -0.125, the ring and the wake), the floor
-// decals (2 RNG draws each), the hit token it writes to each effect, the 0x74c0f0 == 0 move-only state.
+// The water probe (GOXX_17_19.md §2, WATER_RINGS.md): with a `water` ray, life -= 2 more a tick in water, vy >=
+// -0.125, and a pulse in water asks for the ring and the wake (`ring`) and marks the effect's in-water byte (`sub`).
+// [not modelled] the floor decals (2 RNG draws each), the hit token it writes to each effect, the 0x74c0f0 == 0
+// move-only state, the effect's +0x1da (`sub`: its one reader is the particle draw's mode).
 struct Runner {
     Vec3 pos{}, last{};
     float heading = 0, cs = 1, sn = 0;        // +0x130, +0x158, +0x160
@@ -206,6 +208,8 @@ struct Runner {
     int life = 0, cnt = 0;                    // +0x154, +0x168
     float atk = 0;                            // the owner's stat block at creation (+0x94..)
     bool dead = false;
+    bool sub = false;                         // this tick: more than 1.0 under the water (the effect's +0x1da)
+    bool ring_due = false;                    // this tick's pulse asked for the ring and the wake (`ring` set)
 
     // FUN_005916e0 [BYTES 0x591720..0x591847]: `at` = the descriptor's position.
     static Runner make(const Vec3& at, float heading, float step, float power, float scale, int c, int p, int effect,
@@ -224,18 +228,39 @@ struct Runner {
     // host spawns the effect at `*at` (the position before this tick's move).
     template <class Ray>
     bool tick(Ray&& ray, Vec3* at) {
+        return tick(ray, [](const Vec3&, const Vec3&, Vec3*) { return false; }, at);
+    }
+    // ... with the water ray `water(from, d, &hit)` (FUN_0041e420 set 1; GOXX_17_19.md §2 [BYTES 0x591850..0x591e1c]):
+    // from (x, y0 + 11.1, z) down to 0.5 under the snapped origin. `ring` (when not null) gets the
+    // surface point + 0.15 on a pulse in water: the host spawns FUN_00454f40(ring, 0, scale x 0.66667) and
+    // FUN_00454ff0(ring, 0, scale x 1.75, heading); `sub` = the surface is more than 1.0 over the origin.
+    template <class Ray, class Water>
+    bool tick(Ray&& ray, Water&& water, Vec3* at, Vec3* ring = nullptr, bool* in_water = nullptr) {
+        ring_due = false;
         if (dead) return false;
         if (--life <= 0) { dead = true; return false; }
+        const float y0 = pos.y;
         Vec3 hit{};
         if (ray(Vec3{pos.x, pos.y + 1.1f, pos.z}, Vec3{0.0f, -2.6f, 0.0f}, &hit)) {   // 0x6bd464; 0xc0266666
             if (hit.y - pos.y > 0.0f) pos.y = hit.y;                                  // snaps up only
             vy = 0.0f;
         } else vy = -0.75f;
+        Vec3 wh{};
+        const float top = y0 + 1.1f + 10.0f;                                          // 0x6bd928
+        const bool wet = water(Vec3{pos.x, top, pos.z}, Vec3{0.0f, pos.y - top - 0.5f, 0.0f}, &wh);   // 0x6bd304
+        sub = false;
+        if (wet) {
+            life -= 2;
+            if (vy < -0.125f) vy = -0.125f;                                           // 0x6bdfdc
+            if (wh.y - 1.0f > pos.y) sub = true;
+        }
+        if (in_water) *in_water = wet;
         bool pulse = false;
         if (cnt != 0) --cnt;
         else {
             cnt = p;
             pulse = true; *at = pos;
+            if (wet && ring) { *ring = {wh.x, wh.y + 0.15f, wh.z}; ring_due = true; }   // 0x6bd1d8
             const Vec3 d{pos.x - last.x, pos.y - last.y, pos.z - last.z};
             if (ray(Vec3{last.x, last.y + 0.75f, last.z}, d, &hit)) { dead = true; return true; }   // a wall: this pulse, then gone
             last = pos;

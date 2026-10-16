@@ -1634,6 +1634,8 @@ title_again:
     std::vector<extra::Runner> xrunners;                  // the kind-0x17 runners (view_extra.inl)
     std::vector<extra::Chain> xchains;                    // the kind-0x18 chain lightnings (view_extra_chain.inl)
     std::vector<extra::Bolt> xbolts;                      // the free type-7 lines: the ray's, the side lines, a dead chain's
+    water::Rings wrings;                                  // pool 16: the water rings and wakes (view_water_rings.inl)
+    std::vector<water::Follower> xfollowers;              // the kind-0x19 followers (anime_Special a0 = 3)
     // World item pickups (src/cleria/pickup.hpp, build/item_re/PICKUPS.md).
     std::vector<Pickup> pickups;
     struct PendingDebris { int ticks; int cast; Vec3 origin; const AsoVm::DebrisEvent* ev; };
@@ -2295,6 +2297,8 @@ title_again:
         xrunners.clear();
         xchains.clear();
         xbolts.clear();
+        wrings.clear();
+        xfollowers.clear();
         gas_owner.clear();
         fxsim.clear();
         wx.clear();                                           // FUN_00428ec0 / 0x76a558 = 0 (WEATHER.md)
@@ -4215,6 +4219,7 @@ title_again:
                         (unsigned long long)(pick_rng.calls - c0));
     };
     #include "view_hugo_eyes.inl"                         // Hugo's Eyes of Fact (the player's familiars)
+    #include "view_water_rings.inl"                       // the water rings and wakes (WATER_RINGS.md)
     #include "view_extra.inl"                             // the Extra versions (EXTRA_VERSIONS.md)
     auto skill_tick = [&](bool skill_held, bool attack_held) {
         const int slot = skillmp::bracelet_slot(inv.magic);
@@ -8360,6 +8365,7 @@ title_again:
                 } else {
                     submerged = wading = false;
                 }
+                player_wade_step();                           // the wading rings (0x45cbb1..; view_water_rings.inl)
             }
             // The down thrust's landing effect (FUN_0046fba0, the landing flag +0x3bc & 1) [BYTES 0x46fdd0..0x46ffa3]:
             // characters 0, 1 and 3 with the thrust flag +0x6f7 and the attack kind +0x404 == 2 spawn effect 0xc — 9
@@ -8671,7 +8677,14 @@ title_again:
                 benv.player_hp = float(player.hp);
                 benv.ray = [&](const Vec3& o, const Vec3& dl, int set) {
                     bullet::RayHit r;
-                    if (set != 2) return r;                          // [not modelled] water (set 1)
+                    if (set == 1) {                                  // water: a vertical segment down (water_down)
+                        float y = 0.0f;
+                        if (dl.x == 0.0f && dl.z == 0.0f && dl.y < 0.0f && water_down(o, -dl.y, &y)) {
+                            r.hit = true; r.point = {o.x, y, o.z}; r.normal = {0.0f, 1.0f, 0.0f};
+                        }
+                        return r;                                    // [not modelled] any other water segment
+                    }
+                    if (set != 2) return r;
                     r.hit = segment_hit(phys_mesh(room), o, {o.x + dl.x, o.y + dl.y, o.z + dl.z}, &r.point, &r.normal);
                     return r;
                 };
@@ -8709,6 +8722,19 @@ title_again:
                     dust_at("bullet", 7, argb, false, at, 0.35f, 0.32f, 0.012f, false);
                 };
                 benv.carrier = boss2_carrier;                    // kind 0x24's segment (Nygtilger)
+                // The water rings (kind 8's wake, kind 0x29's ring) and kind 0x29's splash (WATER_RINGS.md).
+                benv.ring = [&](const Vec3& at, float scale, float heading) {
+                    if (heading < -100.0f) wrings.spawn_ring(at, 0, scale);
+                    else wrings.spawn_wake(at, 0, scale, heading);
+                    ring_log("a bullet", at);
+                };
+                benv.splash = [&](const Vec3& at) {
+                    ef2sim::SpawnParams sp;                          // side 0, power 0, knock 1, rtype 0, cls 0xff
+                    sp.power = 0.0f; sp.knock = 1.0f; sp.rtype = 0; sp.status = 0; sp.cls = -1; sp.side = 0;
+                    spawn_sim_fx(0x49, at, {}, 1.0f, sp, 0, {});
+                };
+                benv.water_mode = water_mode == 2 ? 2 : phys_mesh(room).has_water() ? 1 : 0;
+                benv.group40 = false;                            // [H] byte 0x7494d7 taken as 0, as weather.hpp
                 // Kind 0x25's probe: the terrain without the boss meshes; a shake already running (view_boss07.inl).
                 benv.ray_no_boss = [&](const Vec3& o, const Vec3& dl, int set) {
                     bullet::RayHit r;
@@ -8720,6 +8746,7 @@ title_again:
                 #include "view_crystal.inl"          // M980's bullet scan (M980.md §3.4a)
                 bullets.update(benv, &bev);
                 extra_runners_tick();                // the kind-0x17 runners (FUN_00591850)
+                water_followers_tick();              // the kind-0x19 followers (FUN_005914b0)
                 for (auto it = gas_owner.begin(); it != gas_owner.end();) {
                     bool live = false;
                     for (auto& bp : bullets.list()) live = live || bp.get() == it->first;
@@ -8760,6 +8787,7 @@ title_again:
             prof("tick:fx-B");
             #include "view_extra_chain.inl"      // Napishtim Adol's chain lightnings (FUN_00592d00)
             #include "view_fx_hits.inl"          // the effects' step and the particles' hit tick
+            wrings.step();                       // pool 16 ages after the effects (World_Update; WATER_RINGS.md)
 
             // Footsteps — the game's rule, not ours. It is a COUNTDOWN IN TICKS
             // reloaded from the surface record, gated on the motion state:
@@ -9220,6 +9248,10 @@ title_again:
         video_mirror_pass(g, room, cw, ch, last_vp);     // the mirror floors' image, before the floors (view_video.inl)
         video_water_grab(g);                             // before layer 0xb: what the water shows (view_video.inl)
         draw(g, room, view, depth, 2);   // layer 0xb (the water surfaces) after the actors' layers 6/8/9
+        if (wrings.size()) {             // Water_DrawRings, queued on layer 0xb too (WATER_RINGS.md)
+            wrings.blend(1.0f);          // [approx] the frame blend 0x74c0e0 is 1, as for the bolts
+            draw_water_rings(g, view, depth, asset_root, wrings);
+        }
         fx_time += dt;
         draw_flames(g, room, view, depth, flames, cam.forward(), fx_time);
         // Script-placed persistent effects (the barrier ward). Killed by op 0x119 when

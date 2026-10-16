@@ -11,6 +11,7 @@
 #include "cleria/gameinfo.hpp"
 #include "cleria/hit_feedback.hpp"
 #include "cleria/skillmp.hpp"
+#include "cleria/water_rings.hpp"
 #include "cleria/world.hpp"
 
 using namespace cleria::skillmp;
@@ -416,6 +417,93 @@ int main(int, char**) {
         check(cleria::hitfx::charged_glow(0, 1, 0, 0x40) == 0x008050u && cleria::hitfx::charged_glow(0, 0, 0, 0x40) == 0x700010u &&
               cleria::hitfx::charged_glow(0xf0f0f0, 2, 3, 0x40) == 0xffffffu && cleria::hitfx::charged_glow(0x101010, 1, 1, 0xc0) == 0x101010u,
               "the charged glow: row x (0.5 sin + 0.5), the others' Ventus (0, 128, 80), Adol's (112, 0, 16), clamped, nothing at the trough");
+    }
+    {   // the water rings and wakes (water_rings.hpp, WATER_RINGS.md)
+        namespace w = cleria::water;
+        auto near = [](float a, float b) { return std::fabs(a - b) < 1e-5f; };
+        w::Rings rs;
+        rs.spawn_ring({1, 2, 3}, 0, 2.5f);
+        rs.step(); rs.blend(1.0f);
+        int n = 0;
+        cleria::Vec3 q[4]; float qu[4] = {}, qv[4] = {}; int qa = 0;
+        rs.quads(0, [&](const cleria::Vec3* p, const float* u, const float* v, std::uint8_t a) {
+            ++n; for (int k = 0; k < 4; ++k) { q[k] = p[k]; qu[k] = u[k]; qv[k] = v[k]; } qa = a; });
+        int other = 0;
+        rs.quads(1, [&](const cleria::Vec3*, const float*, const float*, std::uint8_t) { ++other; });
+        check(n == 1 && other == 0 && near(rs.live()[0].scale, 1.25f) && near(q[0].x, 1.0f - 0.65f) && near(q[0].z, 3.0f - 0.65f) &&
+              near(q[3].x, 1.65f) && near(q[3].z, 3.65f) && q[1].y == 2.0f && qu[2] == 1.0f && qv[1] == 0.5f && qv[3] == 0.5f && qa == 0xff,
+              "a ring 2.5: half-size (1 x 0.02 + 0.5) x 1.25 after its first step, the texture's top half, opaque, pass 0 only");
+        int life = 1;
+        while (rs.size() && life < 100) { rs.step(); ++life; }
+        check(life == 50 && w::Rings::alpha(34.0f) == 0xff && w::Rings::alpha(35.0f) == 0xff && w::Rings::alpha(40.0f) == 170 &&
+              w::Rings::alpha(49.0f) == 17, "it is gone on its 50th step; opaque to 35, then (50 - age) x 17");
+        w::Rings full;
+        int made = 0;
+        for (int i = 0; i < 300; ++i) made += full.spawn_ring({}, 0, 1.0f);
+        check(made == 256 && !full.spawn_wake({}, 1, 1.0f, 0.0f), "256 nodes, then nothing");
+        w::Rings wk;
+        wk.spawn_wake({0, 0, 0}, 1, 2.0f, 0.0f);                    // heading 0 (along +x): i = 64, (T[64], T[0]) = (-0, 1)
+        wk.step(); wk.blend(1.0f);
+        n = 0;
+        wk.quads(1, [&](const cleria::Vec3* p, const float*, const float* v, std::uint8_t) { ++n; for (int k = 0; k < 4; ++k) { q[k] = p[k]; qv[k] = v[k]; } });
+        const float s = 0.52f;
+        check(n == 1 && near(q[0].x, s) && near(q[0].z, -s) && near(q[1].x, -s) && near(q[1].z, -s) && near(q[3].x, -s) && near(q[3].z, s) &&
+              qv[0] == 0.5f && qv[1] == 1.0f, "a wake along +x: the square turned a quarter, the texture's bottom half, pass = its kind");
+        std::uint32_t rw = 0;
+        int draws = 0;
+        auto rnd = [&] { ++draws; return rw += 0x40000000u; };   // 0x40000000 (r = lo), then 0x80000000 (index 0x80)
+        float dx = 0, dz = 0;
+        w::ring_offset(rnd, 0.25f, 0.5f, &dx, &dz);
+        check(draws == 2 && near(dx, -0.25f) && std::fabs(dz) < 1e-6f, "the ring offset: radius from the first word, the angle from the second's top byte");
+        w::Follower f;
+        w::Rings fr;
+        draws = 0;
+        std::string at;
+        int steps = 0;
+        auto deep = [](const cleria::Vec3& p, float* y) { *y = p.y + 2.0f; return true; };
+        while (!f.dead && steps < 200) { ++steps; if (f.tick({0, 1, 0}, true, deep, rnd, fr)) at += std::to_string(steps) + " "; }
+        check(steps == 112 && draws == 14 * 3 && fr.size() > 0 &&
+              at == "7 15 23 31 39 47 55 63 71 79 87 95 103 111 ",
+              "kind 0x19: 111 steps; a ring and a wake on step 7, then every 8th; three draws each");
+        w::Follower g, h;
+        draws = 0;
+        auto shallow = [](const cleria::Vec3& p, float* y) { *y = p.y + 1.0f; return true; };
+        for (int t = 0; t < 120; ++t) { g.tick({0, 1, 0}, false, deep, rnd, fr); h.tick({0, 1, 0}, true, shallow, rnd, fr); }
+        check(draws == 0, "kind 0x19: nothing (and no draw) out of water or with the surface 1.0 or less over him");
+        w::Wade pw, ew;
+        w::Rings wr;
+        draws = 0;
+        w::WadeIn in;
+        in.player = true; in.wading = true; in.surface = 5.0f;
+        int pfire = 0, efire = 0;
+        for (int t = 1; t <= 32; ++t) {
+            in.prev = in.pos; in.pos.x += 0.1f;
+            pfire += w::wade_step(pw, in, rnd, wr).fired;
+        }
+        w::WadeIn ein = in; ein.player = false;
+        for (int t = 1; t <= 32; ++t) { ein.prev = ein.pos; efire += w::wade_step(ew, ein, rnd, wr).fired; }
+        check(pfire == 8 && efire == 4 && wr.size() == 8 * 2 + 4 && draws == 12 * 2,
+              "wading: the moving player every 4th step (ring + wake), another actor still every 8th (a ring)");
+        w::Wade sw;
+        w::Rings sr;
+        w::WadeIn sin = in; sin.sand2 = true; sin.player = false;
+        int sfire = 0;
+        for (int t = 1; t <= 8; ++t) sfire += w::wade_step(sw, sin, rnd, sr).fired;
+        w::Wade lw;
+        w::WadeIn lin = in; lin.lava = true; lin.prev = lin.pos;
+        for (int t = 1; t <= 8; ++t) w::wade_step(lw, lin, rnd, sr);
+        check(sfire == 1 && sr.size() == 1 && sr.live()[0].kind == 1 && near(sr.live()[0].pos.y, 5.15f),
+              "on sand2 the offset is drawn but nothing spawns; on lava the ring is kind 1, 0.15 over the surface");
+        namespace x = cleria::extra;
+        x::Runner r = x::Runner::make({0, 0.75f, 0}, 0.0f, 0.3f, 0.0f, 1.0f, 4, 3, 623, 0.0f);   // life 13
+        auto floor0 = [](const cleria::Vec3& o, const cleria::Vec3& dd, cleria::Vec3* hh) {
+            if (dd.y >= 0.0f || o.y < 0.0f || o.y + dd.y > 0.0f) return false;
+            *hh = {o.x, 0.0f, o.z}; return true; };
+        auto wet = [](const cleria::Vec3& o, const cleria::Vec3&, cleria::Vec3* hh) { *hh = {o.x, 2.0f, o.z}; return true; };
+        int rt = 0, rings = 0;
+        cleria::Vec3 rp{}, rr{};
+        while (!r.dead && rt < 40) { ++rt; if (r.tick(floor0, wet, &rp, &rr) && r.ring_due) ++rings; }
+        check(rt == 5 && rings == 1 && near(rr.y, 2.15f) && r.sub, "the runner in water: 3 life a tick, a ring at the surface + 0.15 with its pulse");
     }
     std::printf("[skill] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;
