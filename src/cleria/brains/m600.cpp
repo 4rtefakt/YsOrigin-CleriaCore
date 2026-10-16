@@ -11,8 +11,8 @@
 // a backwards run until grounded. Cooldowns R%60 - max(0, 15d) + 90 (60 tagged), in 312
 // R%60 - max(0, 30d) + 135 (90). Below half HP it enrages once (section 313: STR x1.1, grows
 // x1.30 with DEF + 20 while growing). Its base speed is restored every tick.
-// [not modelled] the shock effect's particle hits (power 5, knock 10, reaction 2 —
-// EFFECTHIT.md) and its rotation / scale. The 312 block's `inside` is the keep-out test's first
+// The shock effect hits through its particles (power 5, knock 10, reaction 2; EFFECTHIT.md).
+// The 312 block's `inside` is the keep-out test's first
 // result (M600.md §3.0: the origin was in an exit volume, past phase 0; AiEnv::kept_out).
 #include <algorithm>
 #include <cmath>

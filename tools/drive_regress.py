@@ -1143,6 +1143,12 @@ CASES.update({
         room="S_40/S_4012/S_4012", env=_F4,
         drive="9:opt=DamageTaken=0;10:at=0,13,90;13:ehp=64,100;14:ehp=186,100;15:ehp=187,100;1500:quit",
         expect=["ehp #64 cast 64 hp 100/432", "[popup] 25 00ff00"]),
+    # M490 Sopus-Baocar in S_1008: under 4 u its bomb dance drops rings of kind-1 bullets carrying effect 267
+    # (FUN_00593b90, M490.md §2.4); one that lands a hit on the player parks (speed 0).
+    "sopus_bombs": dict(
+        room="S_10/S_1008/S_1008",
+        drive="5:opt=InfiniteHP=1;10:near=#53,3;11:every=20,1500,near=#53,3;12:every=15,1500,bullets;1500:quit",
+        expect=["[bullet] kind 1 effect 267 age 1", "speed 0.00"]),
     # M290 Bicmobre in S_4019 throws its kind-0xf bombs; killed, it throws its death bombs.
     "bicmobre_bombs": dict(
         room="S_40/S_4019/S_4019", env=_F4,

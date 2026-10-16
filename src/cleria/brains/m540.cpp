@@ -13,8 +13,8 @@
 // Boss brain (the Gelaldy fight's summons): HP 350, DEF 50; homes within 15 u, else walks a
 // radius-20 ring about the world origin toward the target; runs when close and level; a fuse
 // of 800 - R%400 ticks (DEF 999 and the bomb EF2 410 from 660).
-// [not modelled] the effects' particle-borne hits (EFFECTHIT.md: the explosion's power 15
-// reaction 2, the fire puffs, the bomb — there is no EF2 particle simulation yet); the blink
+// The explosion, the glow and the bomb hit through their effects' particles (EFFECTHIT.md: the
+// explosion's power 15, reaction 2). [not modelled] the fire puffs' hits; the blink
 // (+0x264..+0x274); the glow / bomb attachment; the
 // x1.6 surface launch factor; the boss brain's lava hop (surface byte +0x4ba).
 #include <algorithm>
