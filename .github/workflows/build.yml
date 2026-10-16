@@ -25,8 +25,8 @@ on:
         type: boolean
         default: false
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+concurrency:   # the macOS run has its own group: it neither cancels nor waits for a push's build
+  group: ${{ github.workflow }}-${{ github.ref }}${{ inputs.macos && '-macos' || '' }}
   cancel-in-progress: true
 
 permissions:
