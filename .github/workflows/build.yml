@@ -4,13 +4,17 @@
 # tools/fetch_deps.py at the versions the Windows build uses (SDL3 3.4.12, wgpu-native v29.0.1.1, ...).
 # Issue #46.
 #
-# Kept cheap: a push / pull request builds Windows (MSVC) and Linux (gcc, clang) only, and a newer push
-# cancels the older run. macOS (billed at 10x) runs only by hand:
+# Kept cheap: a pull request (and a push to master) builds Windows (MSVC) and Linux (gcc, clang) only, and
+# a newer push cancels the older run. A branch push alone does not run: its pull request does, so a PR push
+# is not built twice (any other branch runs by hand: gh workflow run build.yml --ref <branch>). Every job
+# builds with Ninja through ccache (cache restored from the last run of the same job; Windows uses Ninja
+# for per-file parallelism, which MSBuild without /MP lacks). macOS (billed at 10x) runs only by hand:
 #   gh workflow run build.yml --ref <branch> -f macos=true      (then ONLY the macOS job runs)
 name: build
 
 on:
   push:
+    branches: [master]
     paths-ignore: ['**/*.md', 'build/**']
   pull_request:
     paths-ignore: ['**/*.md', 'build/**']
@@ -39,17 +43,18 @@ jobs:
         include:
           - name: windows-msvc
             os: windows-latest
-            cmake_args: -A x64
+            cc: cl
+            cxx: cl
           - name: linux-gcc
             os: ubuntu-latest
             cc: gcc
             cxx: g++
-            cmake_args: -G Ninja -DCLERIA_FFMPEG=ON -DCLERIA_CURL=ON
+            cmake_args: -DCLERIA_FFMPEG=ON -DCLERIA_CURL=ON
+            packages: libavformat-dev libavcodec-dev libswscale-dev libavutil-dev libcurl4-openssl-dev ffmpeg
           - name: linux-clang
             os: ubuntu-latest
             cc: clang
             cxx: clang++
-            cmake_args: -G Ninja
     steps:
       - uses: actions/checkout@v4
 
@@ -57,11 +62,23 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build pkg-config \
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
             libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
-            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev \
-            libavformat-dev libavcodec-dev libswscale-dev libavutil-dev libcurl4-openssl-dev ffmpeg
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev ${{ matrix.packages }}
+
+      # cl.exe and the x64 tools on PATH, for Ninja (the Visual Studio generator sets them up itself).
+      - name: MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ matrix.name }}
+          max-size: 500M
 
       - name: Cache third_party
         uses: actions/cache@v4
@@ -75,14 +92,25 @@ jobs:
       - name: Configure
         shell: bash
         run: |
-          if [ -n "${{ matrix.cc }}" ]; then export CC=${{ matrix.cc }} CXX=${{ matrix.cxx }}; fi
-          cmake -S . -B build ${{ matrix.cmake_args }} -DCMAKE_BUILD_TYPE=Release "-DCLERIA_TEST_ASSETS=${{ github.workspace }}/no-assets"
+          cmake -S . -B build -G Ninja ${{ matrix.cmake_args }} -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=${{ matrix.cc }} -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            "-DCLERIA_TEST_ASSETS=${{ github.workspace }}/no-assets"
 
       - name: Build
         shell: bash
+        run: cmake --build build --parallel -- -k 0   # report every failing file at once
+
+      # Where the build time went: the ten slowest steps (ccache hits included) and the cache's hit rate.
+      - name: Build profile
+        if: ${{ !cancelled() }}
+        shell: bash
         run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then cmake --build build --config Release --parallel
-          else cmake --build build --parallel -- -k 0; fi   # Ninja: report every failing file at once
+          python -c "
+          rows = [l.split('\t') for l in open('build/.ninja_log') if not l.startswith('#')]
+          for r in sorted(rows, key=lambda r: int(r[0]) - int(r[1]))[:10]: print(f'{(int(r[1]) - int(r[0])) / 1000:7.1f}s  {r[3]}')
+          " || true
+          ccache -s || true
 
       - name: Test (no game data)
         if: ${{ !cancelled() }}
