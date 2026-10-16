@@ -5417,6 +5417,15 @@ title_again:
                 apply_loaded(from_record(*rec), /*force_scene*/true);
                 std::printf("  [drive] loaded %s feet (%.3f, %.3f, %.3f)\n", room.name.c_str(), feet.x, feet.y, feet.z);
             }
+        } else if (cmd.rfind("ehp=", 0) == 0) {        // ehp=<instance id>,<hp>: a monster's HP (no death path)
+            int id = 0, v = 0;
+            if (std::sscanf(cmd.c_str() + 4, "%d,%d", &id, &v) == 2)
+                for (Actor& a : world.actors())
+                    if (a.instance_id == id) {
+                        a.hp = float(v);
+                        std::printf("  [drive] t%llu ehp #%d cast %d hp %d/%.0f\n", (unsigned long long)tick_count, id, a.cast_id, v,
+                                    double(a.max_hp));
+                    }
         } else if (cmd.rfind("hp=", 0) == 0) {         // hp=<n>: the player's HP (0 = the death)
             // Capped at the max like the game's own heals: above it the passive Boost fill
             // ((1 - hp/max) x B + 1) x M goes negative, and retail clamps neither the fill nor

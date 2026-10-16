@@ -210,13 +210,19 @@
                 const float php_before = player.hp;
                 hurt_player(en->atk, e.hb.power, e.hb.rtype, hang, e.hb.status, en->cast_id, en->level);
                 // M470's lifesteal (FUN_0048de00 0x48e103, M470.md §2): a hit landed in section 8 heals it by the HP the
-                // player lost (at least 1) when it is down by 1 HP or more. [not modelled] the green popup.
-                if (en->ai_index == 40 && e.avm.section() == 8 && en->max_hp - 1.0f >= en->hp)
-                    en->hp = std::min(en->max_hp, float(int(std::max(1.0f, php_before - player.hp))) + en->hp);
+                // player lost (at least 1) when it is down by 1 HP or more, with a green number (FUN_004fae00, 0xff00ff00)
+                // at its origin.
+                const Vec3 en_origin{en->pos.x, en->pos.y + en->height, en->pos.z};
+                if (en->ai_index == 40 && e.avm.section() == 8 && en->max_hp - 1.0f >= en->hp) {
+                    const int n = int(std::max(1.0f, php_before - player.hp));
+                    damage_popup(n, 0x00ff00, en_origin);
+                    en->hp = std::min(en->max_hp, float(n) + en->hp);
+                }
                 if (en->ai_index == 21 && en->max_hp > en->hp) {   // M280's lifesteal (FUN_004a5300 0x4a55b7, M280.md §2)
                     const int bb5c = difficulty >= 2 ? difficulty - 2 : 0;
                     const int amt = std::max(1, int(std::floor(en->max_hp / (bb5c == 2 ? 7.5f : bb5c == 1 ? 14.0f : 20.0f))));
-                    en->hp = std::min(en->max_hp, en->hp + float(amt));   // [not modelled] the green popup
+                    damage_popup(amt, 0x00ff00, en_origin);         // the green number, then the heal
+                    en->hp = std::min(en->max_hp, en->hp + float(amt));
                 }
             }
             // The boss parts' armed volumes (GoXx kind 9, mode-0 scan; VELAGUNDER.md §3.2): all

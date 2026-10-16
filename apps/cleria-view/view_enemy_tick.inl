@@ -401,6 +401,7 @@
                                  sp.radius, sp.flag_a, sp.flag_b);
                     for (int id : o.sounds) sfx_at(id, en->pos, kSfxAnimVol);
                     if (o.popup >= 0) damage_popup(o.popup, o.popup_rgb, {en->pos.x, en->pos.y + en->height, en->pos.z});   // FUN_004fae00
+                    for (const AiOut::Popup& pp : o.popups) damage_popup(pp.value, pp.rgb, pp.at);
                     // The floor killed it (0x47a671..0x47a6ac): the notes' seen byte, no kill count.
                     if (o.floor_death && en->cast_id >= 0 && en->cast_id < records::MonsterNotes::kEntries)
                         g_notes.seen[std::size_t(en->cast_id)] = 1;
