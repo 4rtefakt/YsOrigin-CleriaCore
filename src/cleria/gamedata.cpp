@@ -1,6 +1,7 @@
 #include "cleria/gamedata.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -104,6 +105,20 @@ std::vector<std::string> vdf_tokens(const fs::path& p) {
     return out;
 }
 
+// A library path from libraryfolders.vdf. Under a Windows Steam in a Wine prefix (the root is
+// <prefix>/drive_c/<Program Files>/Steam) it is a Windows path, "D:\Games\Steam": that is
+// <prefix>/dosdevices/d:/Games/Steam on the host (Wine's drive links).
+fs::path library_path(const fs::path& steam_root, const std::string& p) {
+    const fs::path drive_c = steam_root.parent_path().parent_path();
+    if (drive_c.filename() != "drive_c" || p.size() < 2 || p[1] != ':' ||
+        !std::isalpha(static_cast<unsigned char>(p[0])))
+        return from_u8(p);
+    std::string rest = p.substr(2);
+    std::replace(rest.begin(), rest.end(), '\\', '/');
+    while (!rest.empty() && rest[0] == '/') rest.erase(0, 1);
+    return drive_c.parent_path() / "dosdevices" / (lower(p.substr(0, 1)) + ":") / from_u8(rest);
+}
+
 std::uint64_t fnv1a(std::uint64_t h, const void* p, std::size_t n) {
     const auto* b = static_cast<const std::uint8_t*>(p);
     for (std::size_t i = 0; i < n; ++i) h = (h ^ b[i]) * 0x100000001B3ull;
@@ -186,13 +201,25 @@ std::vector<Validation> find_installs() {
     if (fs::path pf = env_path("ProgramFiles(x86)"); !pf.empty()) steam_roots.push_back(pf / "Steam");
 #else
     if (fs::path h = env_path("HOME"); !h.empty()) {
+        std::vector<fs::path> wine_prefixes{h / ".wine"};   // may hold the Windows Steam client
 #ifdef __APPLE__
         steam_roots.push_back(h / "Library" / "Application Support" / "Steam");
+        // The macOS Steam client does not install Ys Origin (Windows only): it is played through
+        // CrossOver or Whisky, whose bottles are Wine prefixes.
+        for (const fs::path& bottles : {h / "Library" / "Application Support" / "CrossOver" / "Bottles",
+                                        h / "Library" / "Containers" / "com.isaacmarovitz.Whisky" / "Bottles"}) {
+            std::error_code ec;
+            for (fs::directory_iterator it(bottles, ec), end; !ec && it != end; it.increment(ec))
+                wine_prefixes.push_back(it->path());
+        }
 #else
         steam_roots.push_back(h / ".steam" / "steam");
         steam_roots.push_back(h / ".local" / "share" / "Steam");
         steam_roots.push_back(h / ".var" / "app" / "com.valvesoftware.Steam" / ".local" / "share" / "Steam");   // Flatpak
 #endif
+        for (const fs::path& pre : wine_prefixes)
+            for (const char* pf : {"Program Files (x86)", "Program Files"})
+                if (is_dir(pre / "drive_c" / pf / "Steam")) steam_roots.push_back(pre / "drive_c" / pf / "Steam");
     }
 #endif
     std::vector<fs::path> libs;
@@ -201,7 +228,7 @@ std::vector<Validation> find_installs() {
         for (const fs::path& vdf : {root / "steamapps" / "libraryfolders.vdf", root / "config" / "libraryfolders.vdf"}) {
             const std::vector<std::string> t = vdf_tokens(vdf);
             for (std::size_t i = 0; i + 1 < t.size(); ++i)
-                if (lower(t[i]) == "path") libs.push_back(from_u8(t[i + 1]));
+                if (lower(t[i]) == "path") libs.push_back(library_path(root, t[i + 1]));
         }
     }
     std::vector<fs::path> cands;

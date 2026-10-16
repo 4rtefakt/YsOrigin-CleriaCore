@@ -229,8 +229,10 @@ AiOut m280(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                 if ((a.dur() & 0x1f) == 0) fx_at(325, origin_of(*H));
                 if (std::uint32_t(a.dur()) % 24u == 0) {
                     const int amt = d < 0 ? 15 : 15 * d + 25;
-                    if (H->max_hp > H->hp && H->hp >= 1.0f) H->hp = std::min(H->max_hp, H->hp + float(amt));
-                    else a.i(0x79c) += lim10;                      // full or dead: forces the release
+                    if (H->max_hp > H->hp && H->hp >= 1.0f) {
+                        H->hp = std::min(H->max_hp, H->hp + float(amt));
+                        out.popups.push_back({amt, 0x00ff00, origin_of(*H)});   // FUN_004fae00 (0xff00ff00) at H+0x50
+                    } else a.i(0x79c) += lim10;                    // full or dead: forces the release
                     a.i(0x79c) += std::max(amt, 24);
                 }
             }

@@ -710,6 +710,12 @@ CASES = {
         room="S_10/S_1002/S_1002",
         drive="20:drop=72;21:drop=74;22:drop=76;80:hudstate;1900:hudstate;1901:quit",
         expect=["str 0.5/1790 def 0.3/1791 mp 1.2/1792 full 1800", "str 0.0/0 def 0.0/0 mp 0.0/0 full 1800"]),
+    # EventXX(5) (FUN_0058f210 case 5 [BYTES 0x58f662..0x58f682]): the three buff timers = 0 and FUN_00462c40 with
+    # CL = 1, so the buffs end on the call itself.
+    "evxx_buffs": dict(
+        room="S_10/S_1002/S_1002",
+        drive="20:drop=72;21:drop=74;22:drop=76;80:hudstate;90:evxx=5;91:hudstate;92:quit",
+        expect=["str 0.5/1790 def 0.3/1791 mp 1.2/1792 full 1800", "EventXX(5)", "str 0.0/0 def 0.0/0 mp 0.0/0 full 1800"]),
     # Issue #68: the sound FUN_00585ff0's tail plays at the pickup is p_takeitem (88) except for the Strength /
     # Defense / MP Drops, which play s_growup0 / 1 / 2 (7 / 13 / 14) [BYTES 0x586591, 0x5865f1, 0x586672]. All
     # are collected on their 51st tick (age > 50), at the pickup's own position.
@@ -1131,6 +1137,12 @@ CASES.update({
         room="S_40/S_4012/S_4012", env=_F4,
         drive="9:opt=DamageTaken=0;10:at=0,13,90;400:quit",
         expect=["cast 32 phase 2 sub 1 act 0x2", "sec 7 "]),
+    # M280 Chups heals a hurt Titamonus by 25 every 24 ticks (Normal) with a green number at it (M280.md §3,
+    # FUN_004fae00 0xff00ff00).
+    "chups_heal_popup": dict(
+        room="S_40/S_4012/S_4012", env=_F4,
+        drive="9:opt=DamageTaken=0;10:at=0,13,90;13:ehp=64,100;14:ehp=186,100;15:ehp=187,100;1500:quit",
+        expect=["ehp #64 cast 64 hp 100/432", "[popup] 25 00ff00"]),
     # M490 Sopus-Baocar in S_1008: under 4 u its bomb dance drops rings of kind-1 bullets carrying effect 267
     # (FUN_00593b90, M490.md §2.4); one that lands a hit on the player parks (speed 0).
     "sopus_bombs": dict(

@@ -357,6 +357,9 @@ struct AiOut {
     // FUN_004fae00(value, origin, 0xffffffff): a white number at the actor's origin + 0.5 (M510's water drain).
     int popup = -1;
     std::uint32_t popup_rgb = 0xffffff;   // 0xa000a0 for the action player's floor damage (0x47a6ba)
+    // FUN_004fae00 at another actor's origin (M280's heal of an ally: green 0xff00ff00 at H+0x50).
+    struct Popup { int value = 0; std::uint32_t rgb = 0xffffff; Vec3 at{}; };
+    std::vector<Popup> popups;
     bool floor_death = false;             // ... which killed it this tick: +0x3bc |= 0x10, the notes' seen byte
     // The handler took its g_flags[131] branch: FUN_0045f470, the mover with the moving byte +0x514 = 0, in place
     // of the brain, the action player and FUN_00478080 [EXPORT 0047b7f0.c:73-117; 0045f470.c]. The host runs its

@@ -860,7 +860,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                 wgpuSurfaceGetCurrentTexture(surface, &st);
             }
             if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
-                st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
+                st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { if (surface_retry(st.status)) configure(); continue; }
             WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
             {   // black, then the movie quad and the fader over it (the HUD's first two layers)
                 WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
@@ -1089,7 +1089,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             if (offscreen) { st.texture = off_tex; wgpuTextureAddRef(off_tex); st.status = WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal; }
             else wgpuSurfaceGetCurrentTexture(surface, &st);
             if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
-                st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
+                st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { if (surface_retry(st.status)) configure(); continue; }
             WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
             {   // clear to the fog colour (or black), then the room
                 WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
@@ -1455,7 +1455,7 @@ title_again:
             if (offscreen) { st.texture = off_tex; wgpuTextureAddRef(off_tex); st.status = WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal; }
             else wgpuSurfaceGetCurrentTexture(surface, &st);
             if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
-                st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
+                st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { if (surface_retry(st.status)) configure(); continue; }
             WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
             {   // clear, then the title (or the book over it: its Back00 and pillars are opaque)
                 WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
@@ -4346,6 +4346,15 @@ title_again:
             if (player.boosting) end_boost();
         }
         else if (n == 1) player.boost = skillmp::kBoostFull;   // DAT_0076c1b4 = 30000 (a direct write: no READY)
+        else if (n == 3) {                                // the kill flag +0x1d4 on every live GoEffect (pool 0x7300bc)
+            for (auto& f : fxsim.effects()) if (!f->dead) f->kill = true;
+        }
+        else if (n == 6) { hud.hide_boss_gauge(); gauge_owner = 0; }   // DAT_006d5fd8 = 0: the boss gauge's owner
+        else if (n == 9) {                                // byte 0x74ab9b = 1 ("GameFirstPlay"), as case 4's first write
+            settings().s.game.game_first_play = 1;
+            movie_seen.first_play = true;
+            settings().touch(); settings().save();
+        }
         else if (n == 4) {
             // The clear (case 4 [BYTES 0x58f350..0x58f5e9; EXPORT 0058f210.c:92-229], CLEAR_DATA.md §3.2), in order:
             // byte 0x74ab9b = 1 ("GameFirstPlay" of the system ini); the character's clear byte 0x74ab7b / 7a / 79 =
@@ -4378,7 +4387,12 @@ title_again:
         // 11 and 12 zero the four status timers 0x76c160..0x76c16c [EXPORT 0058f210.c:288-311]; the bits and
         // the effects go on the next FUN_00462550 (ail_tick: the engine's own call here returns under a Fix).
         if (n == 11 || n == 12) ailments::clear_timers(ail);
-        // [not modelled] the three buff timers of 12.
+        // 5 and 12 zero the three buff timers 0x76c19c / 1a0 / 1a4 and call FUN_00462c40 with CL = 1, which runs
+        // under a Fix too [BYTES 0x58f662..0x58f682, 0x58f703..0x58f74b]: every active buff ends at once.
+        if (n == 5 || n == 12) {
+            inv.timer_atk = inv.timer_def = inv.timer_mp = 0;
+            if (hudstate::tick_buffs(inv)) (void)player_stats();   // FUN_00420c40 | 0x75
+        }
     };
     csHost.start_label = [&](const std::string& l) {     // [not modelled] the owner actor
         if (!csMgr.start(l)) std::printf("  [menu] %s did not start\n", l.c_str());
@@ -5418,6 +5432,15 @@ title_again:
                 apply_loaded(from_record(*rec), /*force_scene*/true);
                 std::printf("  [drive] loaded %s feet (%.3f, %.3f, %.3f)\n", room.name.c_str(), feet.x, feet.y, feet.z);
             }
+        } else if (cmd.rfind("ehp=", 0) == 0) {        // ehp=<instance id>,<hp>: a monster's HP (no death path)
+            int id = 0, v = 0;
+            if (std::sscanf(cmd.c_str() + 4, "%d,%d", &id, &v) == 2)
+                for (Actor& a : world.actors())
+                    if (a.instance_id == id) {
+                        a.hp = float(v);
+                        std::printf("  [drive] t%llu ehp #%d cast %d hp %d/%.0f\n", (unsigned long long)tick_count, id, a.cast_id, v,
+                                    double(a.max_hp));
+                    }
         } else if (cmd.rfind("hp=", 0) == 0) {         // hp=<n>: the player's HP (0 = the death)
             // Capped at the max like the game's own heals: above it the passive Boost fill
             // ((1 - hp/max) x B + 1) x M goes negative, and retail clamps neither the fill nor
@@ -5439,6 +5462,10 @@ title_again:
                             132.0f + 40.0f * float(k) + 31.0f - text_width_mini(hud.equip_badge[k]));
             for (int k = 0; k < 4; ++k)
                 std::printf("  [drive] hud slot %d icon %s\n", k, !hud.equip_bind[k] ? "none" : hud.equip_dim[k] ? "dim" : "lit");
+        } else if (cmd.rfind("evxx=", 0) == 0) {       // XSO op 0x8b EventXX(n) as a script calls it
+            const int n = std::atoi(cmd.c_str() + 5);
+            std::printf("  [drive] t%llu EventXX(%d)\n", (unsigned long long)tick_count, n);
+            if (csHost.event_xx_fn) csHost.event_xx_fn(n);
         } else if (cmd == "hudskill") {                // the HUD's skill badge cell (view_hud.inl skill_badge_cell)
             Rc c{};
             if (skill_badge_cell(inv.magic, character, player.boosting, c))
@@ -9070,7 +9097,7 @@ title_again:
             wgpuSurfaceGetCurrentTexture(surface, &st);
         }
         if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
-            st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { configure(); continue; }
+            st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { if (surface_retry(st.status)) configure(); continue; }
         WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
         const float rad = room_diag(room);
         if (drive_cam) cam = *drive_cam;

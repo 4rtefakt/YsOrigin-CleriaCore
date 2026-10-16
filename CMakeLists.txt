@@ -456,12 +456,19 @@ add_custom_command(TARGET cleria-view POST_BUILD
 # The self-verifying test apps, registered so `ctest -C Release` runs the suite.
 # All take the extracted asset root and exit non-zero on any failed assert. The root is
 # CLERIA_TEST_ASSETS: by default CleriaCore's data folder when an unpack has completed there
-# ($CLERIA_DATA, else %LOCALAPPDATA%/CleriaCore/data; see src/cleria/gamedata.hpp), else the
+# ($CLERIA_DATA, else gamedata::data_dir()'s default: %LOCALAPPDATA%/CleriaCore/data, macOS
+# ~/Library/Application Support/CleriaCore/data, Linux $XDG_DATA_HOME/CleriaCore/data), else the
 # legacy `assets/` in the source dir.
 if(DEFINED ENV{CLERIA_DATA})
   set(_cleria_data "$ENV{CLERIA_DATA}")
-else()
+elseif(WIN32)
   set(_cleria_data "$ENV{LOCALAPPDATA}/CleriaCore/data")
+elseif(APPLE)
+  set(_cleria_data "$ENV{HOME}/Library/Application Support/CleriaCore/data")
+elseif(DEFINED ENV{XDG_DATA_HOME})
+  set(_cleria_data "$ENV{XDG_DATA_HOME}/CleriaCore/data")
+else()
+  set(_cleria_data "$ENV{HOME}/.local/share/CleriaCore/data")
 endif()
 file(TO_CMAKE_PATH "${_cleria_data}" _cleria_data)
 if(EXISTS "${_cleria_data}/cleria-gamedata.manifest" AND NOT EXISTS "${_cleria_data}/.cleria-installing")
