@@ -52,6 +52,7 @@ auto boss5_apply = [&](const Boss05Output& out, MeshObj* bm) {
     if (out.shake) { g_rig.set_shake_frames(out.shake->first); g_rig.set_shake_amp(out.shake->second); }
     if (out.zoom) zoom_blur(out.zoom->first, out.zoom->second);   // ZoomBlur (0x76a550 / 0x76a554)
     for (const auto& [fi, fv] : out.flags) {
+        if (set_high_flag(fi, fv)) continue;               // 544..546 lie past g_flags
         if (fi < 0 || fi >= 0x200) continue;
         if (game.g_flags[fi] != fv) std::printf("  [boss05] t%llu flag %d = %d\n", (unsigned long long)tick_count, fi, fv);
         game.g_flags[fi] = fv;

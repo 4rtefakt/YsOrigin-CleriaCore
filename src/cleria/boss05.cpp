@@ -723,6 +723,8 @@ void Boss05::death() {
     // alpha is 0.25 at b4 353 and 0 at 354 whether the mesh fade runs before or after the brain; from b4 355 the
     // flag-156 gate freezes the brain (b4 500 is never reached in a run, PICTIMOS.md C13).
     if (b4_ == 354 && !r291 && rush_) out_->flags.push_back({156, 0});
+    else if (b4_ == 354 && !r291 && in_->player_hp >= 1.0f)        // byte 0x76a870 = 1 (no reader), FUN_00461160:
+        for (int f = 544; f <= 546; ++f) out_->flags.push_back({f, 0});   // the drop-buff timers (PICTIMOS.md row 0x534b69)
     if (b4_ == 500) {
         out_->flags.push_back({224, 1});
         fwd_ = {}; yaw_ = 0;

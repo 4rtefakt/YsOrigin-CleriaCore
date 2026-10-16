@@ -283,7 +283,8 @@ auto boss6_apply = [&](const Boss06Output& out) {
     if (out.zoom) zoom_blur(out.zoom->first, out.zoom->second);   // ZoomBlur (0x76a550 / 0x76a554)
     // [not modelled] out.bursts (FUN_0058a5f0), out.pillar_break_test (FUN_00540600, ZAVA_E2 §3.4).
     for (const auto& [fi, fv] : out.flags) {
-        if (fi < 0 || fi >= 0x200) continue;               // 544..546 (dwords 0x76c19c..) lie past g_flags: [not modelled]
+        if (set_high_flag(fi, fv)) continue;               // 544..546 (dwords 0x76c19c..) lie past g_flags
+        if (fi < 0 || fi >= 0x200) continue;
         if (game.g_flags[fi] != fv) std::printf("  [boss06] t%llu flag %d = %d\n", (unsigned long long)tick_count, fi, fv);
         game.g_flags[fi] = fv;
     }

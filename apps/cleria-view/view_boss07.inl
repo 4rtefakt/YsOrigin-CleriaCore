@@ -225,9 +225,8 @@ auto boss7_apply = [&](const Boss07Output& out, MeshObj* bm) {
         barrier_fx = nullptr; barrier_t = 0;
     }
     for (const auto& [fi, fv] : out.flags) {
-        if (fi >= 529 && fi <= 532) { ail.t[fi - 529] = fv; continue; }   // the status timers 0x76c160..0x76c16c
-        if (fi == 550) { player.boost = float(fv); continue; }   // 0x76c1b4: the Boost gauge
-        if (fi < 0 || fi >= 0x200) continue;               // 529..532, 544..546 lie past g_flags: [not modelled]
+        if (set_high_flag(fi, fv)) continue;               // 529..532, 544..546, 550 lie past g_flags
+        if (fi < 0 || fi >= 0x200) continue;
         if (game.g_flags[fi] != fv) std::printf("  [boss07] t%llu flag %d = %d\n", (unsigned long long)tick_count, fi, fv);
         game.g_flags[fi] = fv;
     }
