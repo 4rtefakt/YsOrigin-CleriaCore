@@ -9,7 +9,7 @@
 // within 60 deg -> attack (section 7): at its Marker(1), 1/2/3 poison balls (d < 0 / 0 / >= 1,
 // effect 448 m_dokutama, speed 0.1, gravity 0.004, lobbed by distance), 1 or 2 volleys
 // (+1 when group-tagged), then a cooldown of (R%30 + 60) x 3 (x 2 above Normal).
-// [not modelled] the keep-out box restore (FUN_0042dc90); +0x144 (CASTINFO
+// [not modelled] +0x144 (CASTINFO
 // +0x3c) scaled by the fade; the bullet's damage (the GoXx path is untraced).
 #include <cmath>
 

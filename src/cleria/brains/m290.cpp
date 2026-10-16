@@ -9,7 +9,6 @@
 // 3, x3 turn, x1.3 run) for up to 150 ticks / until 10 u, throwing anyway when still inside 5.5
 // after 100. It owns its section-0x13a launch (K 0.1, push +0x7e0). Dying, it throws bombs up in
 // random directions on dead ticks 15, 30 (Normal), 20, 30, 40 (Hard), 16, 20 .. 44 (Nightmare).
-// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <cmath>
 
 #include "cleria/actor.hpp"

@@ -10,10 +10,12 @@
 // It also hosts XSO op 0x112's falling probe (GoXx type 0x16, not a bullet; §3.14), since it
 // shares the bullet's Env (the player origin, the terrain ray) and effect system.
 //
-// [not modelled] kinds 3, 8, 9, 0xa, 0xc, 0xd, 0x11 and up but 0x16 / 0x1b / 0x1e / 0x1f /
-// 0x21 / 0x25 / 0x26 / 0x27 / 0x28 / 0x29 / 0x2a (BULLETS.md §10.6; 0x21 the boss06 breath, ZAVA_EF.md §F.2; 0x2a the
-// boomerang, M640.md §7; 0x25 / 0x26 / 0x27 boss07's homing shot and meteors, DALLES_CD1.md §4.2 / §5.5; 0x25 with
-// effect 467 and 0x28 boss08's Bit, DARM_B1.md §6) — they fly as kind 1 [STAND-IN]; kind 0xf is not a bullet (BOMB.md);
+// [not modelled] kinds 3, 9, 0xa, 0xc, 0xd, 0x11..0x13, 0x15, 0x17, 0x18, 0x1a, 0x1c, 0x1d, 0x20 and 0x22 fly as
+// kind 1 [STAND-IN]. No shipped spawn reaches them on a story route: a sweep of every FUN_00593550 / FUN_00593b90
+// call site (the kind in EDX or the block's +0x4) finds only kinds 0, 1, 2, 4, 6, 7, 8, 0xb, 0xf, 0x10, 0x16,
+// 0x1b, 0x1e, 0x21, 0x23..0x25 and 0x29 / 0x2a outside the post-game, plus kind 3 from FUN_0059aa90 (kind 0xc's
+// dispenser, itself never spawned), and the ASO FireBullet corpus fires kinds 0..2 only. Kind 0xf is not a
+// bullet (BOMB.md);
 // the kind-0x10/0x23 proxy victim (the player batting a drip); the struck test (§4.4) for every boss effect id
 // but 0x193 (boss07's F shot, DALLES_D23.md §10) and 0x1d3 (boss08's deployed Bit); the effect-id special cases
 // (0x82 rtype, 0x20/0x15 Adol fire, 0x178); the kind-0x29 water ripple and impact burst; the

@@ -10,7 +10,6 @@
 // R%40 + (3 - d)*20 + 63 (the rage section 7: exactly 63). While the attack plays it pushes
 // 1/n along its visible facing into knock channel 2 (n = +0x87c, 1 at the request): section 7
 // at markers 2..4, section 8 at marker 3.
-// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <cmath>
 
 #include "cleria/actor.hpp"

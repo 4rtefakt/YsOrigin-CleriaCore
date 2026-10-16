@@ -9,7 +9,7 @@
 // pitched down toward a lower target. Cooldowns 135 - 30d + R%60 (melee) / 360 - 90d + R%60 (throw), a
 // coin zeroing them. When the player attacks while facing it, now and then it hops aside, back, or
 // forward (x2 on a coin); a blocked back-off / strafe can trigger the same hops.
-// [not modelled] the keep-out box restore (FUN_0042dc90). [approx] FUN_00446680 (skip to Marker 4)
+// [approx] FUN_00446680 (skip to Marker 4)
 // runs the host's fast_forward_to_marker.
 #include <algorithm>
 #include <cmath>

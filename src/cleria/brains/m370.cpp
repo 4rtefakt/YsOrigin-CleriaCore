@@ -12,7 +12,6 @@
 // The charge is action 0x400 for 112 / 164 / 216 ticks (Easy / Normal / Hard+) at half turn
 // rate: the run section 1 is its hop loop and hit volume. Lockout 120 / 90 / 60 after.
 // The jump helper's section-0x13a launch (K 0.1, push +0x7e0; FACTORY.md: jump-capable).
-// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <algorithm>
 #include <cmath>
 

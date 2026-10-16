@@ -8,7 +8,6 @@
 // (section 312) or the hop-and-shoot (section 313). Cooldown 45 - 15d + R%20 past the hold. Standing on
 // surface 0x11 (blood water) it runs back to the target's last safe position; unaware, a target on 0x11 wakes it.
 // The set-1 ("water") rays are AiWorld::water_under (straight down, as both of the brain's are).
-// [not modelled] the keep-out box restore (FUN_0042dc90).
 #include <cmath>
 
 #include "cleria/actor.hpp"

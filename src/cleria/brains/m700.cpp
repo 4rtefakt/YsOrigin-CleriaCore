@@ -8,7 +8,7 @@
 // section's Marker(496): power 5, rtype 2, status 0x10, released at Marker(1)); else inside 6 u (and 45 deg when
 // beyond 4.5) 35 % forces section 7, a slash with shots that restarts itself at Pattern frame 5, d + 2 times.
 // Cooldowns 270 - 30d + R%60 / 410 - 25d + R%60; the lockout is a third of the cooldown.
-// [not modelled] the keep-out box restore (FUN_0042dc90). [approx] FUN_0047a880 un-loops the effect's particles
+// [approx] FUN_0047a880 un-loops the effect's particles
 // through the SHARED emitter descriptor (M700.md §6 #2: every later spawn would lose the loop unless the EF2 is
 // reloaded, not traced); the port un-loops this instance only.
 #include <cmath>

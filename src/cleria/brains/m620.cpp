@@ -7,7 +7,7 @@
 // then plays section 7 (117 ticks: the ASO's bite and, at t 72, the bulb fired as a bullet) standing with its
 // heading locked — at Marker 2 it pounces (a 0.28 jump, a 0.1 + 0.04(d + 2) kick) and runs at the target while
 // airborne. Cooldown 117 + 15(3 - d) + R%40. Grounded on surface 0x11 (blood water) it springs out (+1.6, 0.3).
-// [not modelled] the keep-out box restore (FUN_0042dc90); the handler's bulb kill on the first dead tick
+// [not modelled] the handler's bulb kill on the first dead tick
 // (FUN_0047a7c0: the bulb fades within its own 60-tick life anyway). [approx] the bulb is re-placed by
 // position with the visible facing's yaw (the engine copies the actor's world matrix); each re-spawn takes the
 // other of two tags so the orphaned bulb stays where it was, as in the engine.
