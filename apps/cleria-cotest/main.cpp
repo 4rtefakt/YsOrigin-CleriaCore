@@ -580,6 +580,43 @@ int main(int argc, char** argv) {
             std::printf("[moveto] op3 = arrival radius, op4 = speed scale %s\n", ok ? "OK" : "FAIL");
             fails += !ok;
         }
+        // The Wait_ChrMoving watchdog (XsoVm::kChrMovingLimit): an actor that never stops holds its script
+        // only that many frames, counted per instance, and an actor that stops lets it through at once.
+        {
+            struct StuckHost : XsoHost {
+                bool moving = true;
+                void spawn(int, int, float, float, float, float, int) override {}
+                bool is_alive(int) const override { return false; }
+                bool chr_moving(int) const override { return moving; }
+            } sh;
+            struct NoLoader : ScriptLoader {
+                std::shared_ptr<const Xso> load_script(const std::string&) override { return nullptr; }
+            } nl;
+            Asm as;
+            as.op(0x100, {I(87)});
+            as.raw(std::int32_t(1u << 24));
+            const auto s = std::make_shared<Xso>(Xso::parse(as.bytes()));
+            ScriptManager mgr; mgr.loader = &nl; mgr.vm.host = &sh;
+            int fired = -1;
+            mgr.vm.on_moving_timeout = [&](int id) { fired = id; };
+            mgr.start_root(s, "stuck_a");
+            mgr.start_root(s, "stuck_b");                  // a second clock, started a frame later
+            for (int f = 0; f < XsoVm::kChrMovingLimit - 3; ++f) mgr.tick_all();
+            const bool held = mgr.live.size() == 2 && fired == -1;
+            for (int f = 0; f < 4; ++f) mgr.tick_all();
+            const bool freed = !mgr.any_live() && fired == 87;
+            ScriptManager m2; m2.loader = &nl; m2.vm.host = &sh;
+            sh.moving = true;
+            m2.start_root(s, "walk");
+            for (int f = 0; f < 10; ++f) m2.tick_all();
+            sh.moving = false;
+            m2.tick_all();
+            const bool stopped = !m2.any_live();
+            const bool ok = held && freed && stopped;
+            std::printf("[watchdog] Wait_ChrMoving let through after %d frames (held=%d freed=%d stopped=%d) %s\n",
+                        XsoVm::kChrMovingLimit, held, freed, stopped, ok ? "OK" : "FAIL");
+            fails += !ok;
+        }
     }
     // EVENTS-ON-BY-DEFAULT burn-in (PLAN.md Phase 2): EVERY room root, started on the
     // faithful new-game flag state + the flag-235 intro stand-in, must SETTLE (no Fix

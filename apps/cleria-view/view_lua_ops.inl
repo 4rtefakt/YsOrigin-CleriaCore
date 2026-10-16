@@ -286,6 +286,10 @@ g_lua.b.op = [&](const std::string& mod, const std::string& op, const std::vecto
         if (!v) g_lua.hud_hidden.erase(mod);
         return true;
     }
+    if (op == "skip_cutscenes") {                        // this mod asks every cutscene and movie to skip ("Always")
+        if (arg(0) != 0) g_skip_mods.insert(mod); else g_skip_mods.erase(mod);
+        return true;
+    }
     if (op == "pause") {                                 // this mod holds the game (as a window of its own would)
         if (arg(0) != 0) g_lua.pause.insert(mod); else g_lua.pause.erase(mod);
         return true;

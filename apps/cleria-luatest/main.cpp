@@ -1078,6 +1078,14 @@ int main(int argc, char** argv) {
                   h.ops7[3] == "api7q new_game" && has(h.logs, "files truetruefalsetruetrue bad falsetruefalse card function"),
                   "api 7: audio.play / music(file), game.new_game, save.card (" + q->error() + ")");
         }
+        {   // API 7: game.skip_cutscenes asks the host with this mod's id, on and off
+            h.ops7.clear();
+            auto k = make(h, tmp, "api7k", R"LUA(
+                cleria.log("skip " .. tostring(cleria.game.skip_cutscenes(true)) .. tostring(cleria.game.skip_cutscenes(false)))
+            )LUA");
+            check(k->ok() && h.ops7.size() == 2 && h.ops7[0] == "api7k skip_cutscenes 1" && h.ops7[1] == "api7k skip_cutscenes 0" &&
+                  has(h.logs, "skip truetrue"), "api 7: game.skip_cutscenes (" + k->error() + ")");
+        }
         {   // API 7: the tools reach the host (a command of any mod, their names, the log's tail, a reload asked for)
             auto t = make(h, tmp, "api7t", R"LUA(
                 local Mo = cleria.mods

@@ -1022,6 +1022,10 @@ int l_game_new_game(lua_State* L) {                      // ([character 1..3 [, 
     lua_pushboolean(L, op(L, "new_game", v));
     return 1;
 }
+int l_game_skip_cutscenes(lua_State* L) {                // (on): while on, every cutscene and movie skips as it starts
+    lua_pushboolean(L, op(L, "skip_cutscenes", {lua_toboolean(L, 1) ? 1.0 : 0.0}));
+    return 1;
+}
 int l_audio_stop_music(lua_State* L) {                   // ([fade in seconds])
     lua_pushboolean(L, op(L, "bgm_stop", {std::clamp(luaL_optnumber(L, 1, 1.0), 0.0, 30.0) * 1000.0}));
     return 1;
@@ -1044,7 +1048,7 @@ void open_api7_av(lua_State* L) {                        // the cleria table is 
     lua_newtable(L);
     set_funcs(L, audio);
     lua_setfield(L, -2, "audio");
-    static const luaL_Reg game[] = {{"new_game", l_game_new_game}, {nullptr, nullptr}};
+    static const luaL_Reg game[] = {{"new_game", l_game_new_game}, {"skip_cutscenes", l_game_skip_cutscenes}, {nullptr, nullptr}};
     lua_getfield(L, -1, "game");
     set_funcs(L, game);
     lua_pop(L, 1);
