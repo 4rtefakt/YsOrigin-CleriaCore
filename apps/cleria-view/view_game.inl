@@ -104,6 +104,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     bool shell_drive_close = false;                      // CLERIA_DRIVE `shell`: close after the shot
     int shell_shot_frames = 0;                           // frames left before that shot
     shell.init(win, g, fmt);
+    shell.ui_scale_pct = settings().s.cleria.ui_scale;   // [cleria.shell] UiScale (the Interface page)
     shell.hud["pad"] = pad_hud;                          // controller hot-plug notice (view_pad.inl)
     shell.hud["modfile"] = modfile_hud;                  // the mod-file install notice (view_modfile.inl)
     shell.hud["video"] = video_hud;                      // the FPS display / frame-time graph (view_video.inl)
@@ -624,6 +625,20 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                            "of the original game. (F3)")) {
                 settings().s.cleria.debug_hud = hud.debug_text;
                 persist();
+            }
+            {   // [cleria.shell] UiScale: the size of this panel and of every other shell layer
+                static const int kPct[] = {0, 100, 115, 130, 150};
+                static const char* kNames[] = {"Automatic", "100%", "115%", "130%", "150%"};
+                int idx = 0;
+                for (int i = 0; i < 5; ++i) if (kPct[i] == settings().s.cleria.ui_scale) idx = i;
+                if (ui::choice(L, "Interface size", &idx, kNames, 5,
+                               "The size of CleriaCore's own menus and overlays (this panel, the launcher, notices). "
+                               "Automatic is larger on a Steam Deck and the standard size elsewhere. The game's own "
+                               "menus and HUD are not affected. Not a retail option.")) {
+                    settings().s.cleria.ui_scale = kPct[idx];
+                    shell.ui_scale_pct = kPct[idx];
+                    persist();
+                }
             }
             access_interface_rows(L, persist);        // flashes, shake, text speed (view_access.inl)
         });
@@ -5130,6 +5145,15 @@ title_again:
             std::printf("  [drive]   frozen %d fix %d/%d popups %zu\n", int(csMgr.world_frozen()), csMgr.fix_counts[0], csMgr.fix_counts[1], popups.size());
             for (const auto& li : csMgr.live)
                 std::printf("  [drive]   script %s pc %u wait %d%s\n", li.name.c_str(), li.pc, li.wait, li.finished ? " (done)" : "");
+        } else if (cmd == "padmenu") {               // Back + Start on a pad: the shell's chord (view_shell.inl)
+            for (int press = 0; press < 2; ++press) {  // twice: it opens, then closes (an open panel stops the drive's ticks)
+                SDL_Event pe = {};
+                pe.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN; pe.gbutton.button = SDL_GAMEPAD_BUTTON_BACK; shell.event(pe);
+                pe.gbutton.button = SDL_GAMEPAD_BUTTON_START; shell.event(pe);
+                pe.type = SDL_EVENT_GAMEPAD_BUTTON_UP; shell.event(pe);
+                pe.gbutton.button = SDL_GAMEPAD_BUTTON_BACK; shell.event(pe);
+                std::printf("  [drive] pad Back + Start: the settings panel is %s\n", shell.open ? "open" : "closed");
+            }
         } else if (cmd == "shell" || cmd.rfind("shell=", 0) == 0 || cmd == "shellback") {
             // open the F1 shell overlay (shell=<Tab>[:<sub>]), shoot it, close it; shellback = Esc / the pad's
             // Back on the current tab first (a sub-page returns to its page; ui::Page::back)

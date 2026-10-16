@@ -6,6 +6,7 @@
 #include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_wgpu.h"
 #include "view_ui.inl"
+#include "cleria/pad.hpp"   // the hint line's button names
 
 // Read a finished frame back and write it as a PPM (headless captures of the shell).
 static void save_frame_ppm(Gpu& g, WGPUTexture tex, WGPUTextureFormat fmt, std::uint32_t w, std::uint32_t h,
@@ -48,6 +49,17 @@ struct Shell {
     bool ready = false;
     bool open = false;            // the settings panel (F1)
     bool launcher = false;        // the launcher owns the screen: input always goes to the shell
+    // The shell's size: [cleria.shell] UiScale in percent, 0 = automatic. Automatic is 130 on a Steam Deck (Steam
+    // sets SteamDeck=1 for what it starts there: a 7 inch 1280 x 800 screen, where the reference size gives 11 px
+    // type) and 100 anywhere else. [H: 130 picked from 1280 x 800 captures]
+    int ui_scale_pct = 0;
+    static float ui_scale_of(int pct) {
+        if (pct <= 0) { const char* d = std::getenv("SteamDeck"); pct = d && d[0] == '1' ? 130 : 100; }
+        return float(std::clamp(pct, 75, 200)) / 100.0f;
+    }
+    // The pad's way to the settings panel (a pad has no F1): Back + Start, pressed together, toggles it like F1.
+    // (View + Menu on an Xbox pad and a Steam Deck, Create + Options on a DualSense, - and + on a Switch pad.)
+    bool pad_back_down = false, pad_start_down = false;
     ui::Panel panel;
     // Drawn under the panel every frame while set (the launcher's main menu). `nav` is empty while
     // the panel is open, so the menu does not react to the panel's keys.
@@ -144,6 +156,18 @@ struct Shell {
             g_shell_focus = open || launcher;
             return true;
         }
+        if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || e.type == SDL_EVENT_GAMEPAD_BUTTON_UP) {
+            const bool down = e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+            const bool chord = e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK || e.gbutton.button == SDL_GAMEPAD_BUTTON_START;
+            const bool other = e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK ? pad_start_down : pad_back_down;
+            if (e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) pad_back_down = down;
+            if (e.gbutton.button == SDL_GAMEPAD_BUTTON_START) pad_start_down = down;
+            if (chord && down && other && !capture.active) {
+                open = !open;
+                g_shell_focus = open || launcher;
+                return true;
+            }
+        }
         if (!open && !launcher && !modal_now()) return false;
         ImGui_ImplSDL3_ProcessEvent(&e);
         switch (e.type) {
@@ -163,7 +187,7 @@ struct Shell {
         g_shell_focus = ready && (open || launcher || mwin);   // every frame, so it can never stay stuck on
         if (g_shell_focus) g_input_relatch = true;        // re-latch the mapper on hand-back (view_input.inl)
         if (!ready || (!open && !under && hud.empty()) || w == 0 || h == 0) return;
-        ui::S = float(h) / 1000.0f;                       // [H] the reference shots were 1125 px tall
+        ui::S = float(h) / 1000.0f * ui_scale_of(ui_scale_pct);   // [H] the reference shots were 1125 px tall
         // ImGui shows / shapes the OS pointer only while the shell owns the input: under hud layers
         // alone the game's hidden pointer (sync_os_cursor) must stay hidden.
         if (open || launcher || mwin) ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
@@ -188,6 +212,22 @@ struct Shell {
             static const char* kWhat[] = {"Press a key", "Click a mouse button", "Press a gamepad button"};
             ui::prompt(dl, float(w), float(h), kWhat[int(capture.kind)], capture.label.c_str(),
                        "Esc cancels  â¢  Delete clears the binding");
+        }
+        if (open && !capture.active && (g_sdl_in.pad || std::getenv("CLERIA_PAD_FAKE"))) {
+            // With a pad: what its buttons do in the panel, under it, in that pad's own button names.
+            const pad::Glyphs gl = pad::glyphs_for_sdl_type(g_sdl_in.pad ? int(SDL_GetGamepadType(g_sdl_in.pad)) : 0);
+            const int ok = ui::pad_swap_ok ? pad::kEast : pad::kSouth, back = ui::pad_swap_ok ? pad::kSouth : pad::kEast;
+            const std::string hint = std::string(pad::button_name(gl, ok)) + "  Select        " + pad::button_name(gl, back) +
+                                     "  Back        " + pad::button_name(gl, pad::kLeftShoulder) + " / " +
+                                     pad::button_name(gl, pad::kRightShoulder) + "  Change tab        " +
+                                     pad::button_name(gl, pad::kBack) + " + " + pad::button_name(gl, pad::kStart) + "  Close";
+            const float S = ui::S, px = 15.5f * S;
+            const float ph = std::min(float(h) - 40.0f * S, 600.0f * S);          // the panel's height (ui::Panel::draw)
+            const ImVec2 ts = ui::text_size(ui::F.cond, px, hint.c_str());
+            const float y = std::min((float(h) + ph) * 0.5f + 9.0f * S, float(h) - ts.y - 2.0f * S);
+            const float x = (float(w) - ts.x) * 0.5f;
+            dl->AddRectFilled({x - 12.0f * S, y - 3.0f * S}, {x + ts.x + 12.0f * S, y + ts.y + 4.0f * S}, IM_COL32(0, 0, 0, 170), 5.0f * S);
+            ui::text(dl, ui::F.cond, px, {x, y}, ui::kTabOn, hint.c_str());
         }
         g_shell_focus = open || launcher || modal_now();
         ImGui::Render();

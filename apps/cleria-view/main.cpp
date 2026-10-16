@@ -546,6 +546,7 @@ fn fs_pm(in : VsOut) -> @location(0) vec4<f32> {
 #include "view_menus.inl"
 #include "view_book.inl"
 #include "view_game.inl"
+#include "view_firstrun.inl"            // the setup screen when there is no game data yet
 
 static fs::path g_index_root;   // the root build_indexes walked (reindex_textures)
 static void build_indexes(Gpu& g, const fs::path& root) {
@@ -623,7 +624,7 @@ int main(int argc, char** argv) {
     init_cull_env();
     modfile_take_args(argc, argv);   // <file>.cleriamod / --install-mod <file> (view_modfile.inl)
     // No args -> free-fly the tower base (S_1000) with default assets.
-    const fs::path asset_root = (argc >= 2) ? fs::path(argv[1]) : default_assets(argv[0]);
+    fs::path asset_root = (argc >= 2) ? fs::path(argv[1]) : default_assets(argv[0]);
 
     // Headless Option-persistence check: load yso_win.ini (CLERIA_INI), print, mutate, save, dump.
     if (argc >= 3 && std::strcmp(argv[2], "--config-test") == 0) {
@@ -689,6 +690,11 @@ int main(int argc, char** argv) {
     { WGPUAdapterInfo info = {}; wgpuAdapterGetInfo(g.adapter, &info);
       std::printf("adapter: %.*s\n", int(info.device.length), info.device.data); }
 
+    // No asset root given and no game data anywhere: the setup screen unpacks it (view_firstrun.inl).
+    if (argc < 2 && !has_game_data(asset_root)) {
+        asset_root = first_run_setup(g);
+        if (asset_root.empty()) return 0;
+    }
     build_indexes(g, asset_root);
     g_caustic.dir = asset_root / "IMAGE" / "CAUSTICS" / "01";
     g_water.dudv = asset_root / "IMAGE" / "WATER_DUDV_256.DDS";

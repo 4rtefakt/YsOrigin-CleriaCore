@@ -182,6 +182,10 @@ when no asset root is given (after `$CLERIA_ASSETS`, before the legacy `assets/`
 the exe/repo), and so does `ctest` (`CLERIA_TEST_ASSETS`). Details:
 `build/shell_re/GAMEDATA.md`.
 
+Started with no asset root and no game data yet, `cleria-view` opens a setup screen instead: the
+installs found in your Steam libraries, a folder dialog or a typed folder, then the same unpack and
+straight on into the game (`apps/cleria-view/view_firstrun.inl`).
+
 **Music, movies and the menu font** are loose files in the install's `release/` and are
 not copied: through the manifest, an unpacked data folder resolves them from
 `<install>/release/music`, `<install>/release/*.avi|*.dat` and

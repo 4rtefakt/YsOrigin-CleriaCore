@@ -128,6 +128,8 @@ struct Settings {
         std::int32_t enemy_health_bars = 0;  // [cleria.qol] EnemyHealthBars: 0 off (retail), 1 after a hit, 2 always
                                              // (CleriaCore's own, not retail: src/cleria/enemybar.hpp)
         bool launcher_music = true;          // [cleria.shell] LauncherMusic (the title theme on CleriaCore's launcher)
+        std::int32_t ui_scale = 0;           // [cleria.shell] UiScale: the shell's size in percent (75..200); 0 = automatic
+                                             // (130 on a Steam Deck, else 100)
         std::string launcher_room = "auto";  // [cleria.shell] LauncherRoom (the launcher's backdrop: "auto" (or empty) =
                                              // by the newest save's floor, launcher_backdrop; else a room id)
         bool vsync = true;                   // [cleria.video] VSync (CleriaCore's own; retail WaitVSync round-trips)
