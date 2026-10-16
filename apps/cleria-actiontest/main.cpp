@@ -5,6 +5,7 @@
 #include <cstdio>
 
 #include "cleria/player_actions.hpp"
+#include "cleria/silver_shots.hpp"
 
 using namespace cleria;
 
@@ -208,6 +209,47 @@ int main(int, char**) {
         }
         check(near(dash_char_const(1, false), 1.4f) && near(dash_char_const(3, false), 1.55f),
               "the dash constants (Yunica 1.4, Toal 1.55)");
+    }
+    {   // the final battle's silver shots (silver_shots.hpp; FUN_0046ea00's arm, FUN_0046af60's tick, FUN_0046e460)
+        PlayerActions pa;
+        PlayerActions::In in; in.character = 3; in.actable = true; in.attack_pressed = true;
+        const PlayerActions::Out g = pa.tick(in);
+        check(g.section >= 0 && g.shot_arm == 0, "a ground swing arms the narrow shot (+0x7fc = 0)");
+        PlayerActions pj;
+        PlayerActions::In ij; ij.character = 3; ij.actable = true; ij.attack_pressed = true; ij.grounded = false; ij.t = 0.1f;
+        const PlayerActions::Out j = pj.tick(ij);
+        check(j.section == 0x109 && j.shot_arm == 1, "the jump attack arms the wide shot (+0x7fc = 1)");
+        ij.stick_active = true;
+        PlayerActions pc;
+        check(pc.tick(ij).shot_arm == 1 && pc.air_combo, "the air combo arms the wide shot");
+        PlayerActions pt;
+        PlayerActions::In it; it.character = 3; it.actable = true; it.attack_pressed = true; it.grounded = false;
+        it.t = -0.1f; it.section = 3;
+        const PlayerActions::Out t = pt.tick(it);
+        check(t.section == 0x10b && t.shot_arm == -1, "the down thrust's start arms nothing");
+
+        SilverShots s;
+        s.arm(false, 3);
+        SilverShots::Tick a = s.tick(true);
+        check(a.se && a.shot && !a.wide && s.count == 0, "one narrow shot on the next tick, then the state is clear");
+        check(!s.tick(true).se, "nothing after it");
+        s.arm(true, 3);
+        int shots[3] = {-1, -1, -1}, n = 0, se = 0;
+        for (int k = 0; k < 40; ++k) {
+            const SilverShots::Tick b = s.tick(true);
+            se += b.se;
+            if (b.shot && n < 3) shots[n++] = k;
+        }
+        check(n == 3 && shots[0] == 1 && shots[1] == 13 && shots[2] == 25 && se == 26,
+              "Toal's wide volley: 3 shots on ticks 1, 13, 25 (+0x80c % 12 == 1), SE 762 on 26 ticks");
+        s.arm(true, 1);
+        check(s.count == 1 && s.period == 0, "the others' wide arm: one shot");
+        s.arm(true, 3, false);
+        check(s.count == 1 && s.period == 0, "the thrust's landing: one shot for Toal too");
+        check(!s.tick(false).se && s.count == 1, "without flag 215 the tick does nothing");
+        check(silver_fan(true, false)[0] == -15.0f && silver_fan(false, false)[2] == 3.0f && silver_fan(false, true)[0] == -6.0f &&
+                  silver_power(false) == 20.0f && silver_power(true) == 22.0f,
+              "the fans (0x69bc7c..0x69bcac) and the power (20, 22 under Boost)");
     }
     std::printf("[act] %s (%d failed)\n", fails ? "FAILURES" : "ALL PASS", fails);
     return fails ? 1 : 0;
