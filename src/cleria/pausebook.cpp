@@ -2177,7 +2177,7 @@ void PauseBook::update_charsel(const BookInput& in0, BookModel& m, BookEvents& e
             } else if (code < 0) {
                 csstate_ = 1; cshi_.pulse_specular_on(8); cs_colours(m, true);
             } else {
-                if (cspop_kind_ == 0) cs_result_.type = code; else cs_result_.outfit = code;
+                if (cspop_kind_ == 0) cs_result_.type = code; else { cs_result_.outfit = code; cs_result_.outfit_set = true; }
                 if (cspop_kind_ == 0 && cssel_ == 0 && m.charsel.yunica_outfit) cs_next_ = 1;
                 else cs_next_ = 2;
             }
@@ -2209,12 +2209,13 @@ void PauseBook::update_charsel(const BookInput& in0, BookModel& m, BookEvents& e
             bool hovered = false;
             if (in.wheel == 0) {
                 if (in.moved)
-                    for (int i = 0; i < mm; ++i)
+                    for (int i = charsel_hover_first(g.mode, g.clear_yunica, g.clear_hugo); i < mm; ++i)
                         if (hit(csbar_[i], in)) { s = i; hovered = true; break; }
             } else {
                 s = (mm + s - (in.wheel > 0 ? 1 : -1)) % mm;
             }
             s = (s + in.vstep + mm) % mm;
+            if (g.mode == 1) s = charsel_ta_cursor(s, cssel_, g.clear_yunica, g.clear_hugo, g.clear_toal);
             if (s != cssel_) {
                 cssel_ = s;
                 ev.sounds.push_back(3);

@@ -15,7 +15,7 @@
 // of 800 - R%400 ticks (DEF 999 and the bomb EF2 410 from 660).
 // [not modelled] the effects' particle-borne hits (EFFECTHIT.md: the explosion's power 15
 // reaction 2, the fire puffs, the bomb — there is no EF2 particle simulation yet); the blink
-// (+0x264..+0x274); the glow / bomb attachment; the keep-out box restore (FUN_0042dc90); the
+// (+0x264..+0x274); the glow / bomb attachment; the
 // x1.6 surface launch factor; the boss brain's lava hop (surface byte +0x4ba).
 #include <algorithm>
 #include <cmath>

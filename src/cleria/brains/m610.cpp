@@ -9,7 +9,7 @@
 // serial each tick) with one push of 0.7 + 0.15d. A tagged one inside 5 u hops back first (section
 // 301); on Hard and up, inside 1.5 u, 50%. The cooldowns: 77 + 20 + R%20 (+40 on Easy) / 200 - 15d +
 // 20 + R%20. A grounded one in its walk / run section hops a wall it can clear at +3.0 (0.33, kick 0.15).
-// [not modelled] the keep-out box restore (FUN_0042dc90); the dead 0x13a launch tail (no 0x13a section
+// [not modelled] the dead 0x13a launch tail (no 0x13a section
 // in M_610.ASO, no jump flag).
 #include <cmath>
 

@@ -5,6 +5,7 @@
 
 #include "cleria/cast.hpp"
 #include "cleria/eex.hpp"
+#include "cleria/extra_versions.hpp"
 #include "cleria/enemies.hpp"
 #include "cleria/gameinfo.hpp"
 #include "cleria/sct.hpp"
@@ -68,6 +69,11 @@ Actor* ActorWorld::spawn(const SpawnRequest& r0) {
     a->speed30c = c->speed_base;   // 0x4596a8: +0x30c = CASTINFO+0x48 (WAITOPS.md §6.2)
     a->ai = EnemyAi{};    // the factory builds a fresh actor: brain phase 0
     a->kind = kind_word(c->actor_class);
+    // +0x24c: cast 0xa6 runs C_980 in place of its own script while 0x74c0d0 != 0 [BYTES 0x459439..0x45944d].
+    {
+        const char* aso = extra::cast_aso_override(c->cast_id, school_outfit && *school_outfit != 0);
+        a->aso_override = aso ? aso : "";
+    }
 
     // Step 5: placement. ** The op stores DEGREES ** and the engine converts
     // (FUN_00443a80). Storing the raw operand as radians would be a silent 57x error.

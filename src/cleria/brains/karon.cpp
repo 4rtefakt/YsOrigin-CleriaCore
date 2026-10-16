@@ -12,7 +12,7 @@
 // spins, the follow-ups at Marker 3 or when the section ends, snapping the heading to the target.
 // Every third tick (per actor slot) in phase 2 they look 1.5 / 2.25 (/ 3.0) ahead for a higher
 // non-sand floor and climb out with section 0x13a and their own launch.
-// [not modelled] the keep-out box restore (FUN_0042dc90); the init's own integrator + probe calls
+// [not modelled] the init's own integrator + probe calls
 // (FUN_0045a510 / FUN_0045c490, byte +0x4c3); +0x420 (written with +0x330); the +0x38c re-bury
 // trigger (its probe quantity +0x390 is untraced, so it reads 0); the jump search's per-actor-slot
 // stagger keys on the instance id instead of the actor's address [H].

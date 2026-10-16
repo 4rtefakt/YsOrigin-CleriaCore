@@ -239,6 +239,11 @@ target_link_libraries(cleria-settingstest PRIVATE cleria)
 add_executable(cleria-accesstest apps/cleria-accesstest/main.cpp)
 target_link_libraries(cleria-accesstest PRIVATE cleria)
 
+# cleria-atan2ftest — the Windows build's atan2f on every platform (src/cleria/platform_math): on Windows against
+# the C library's, bit for bit; everywhere the pinned results through std::atan2.
+add_executable(cleria-atan2ftest apps/cleria-atan2ftest/main.cpp)
+target_link_libraries(cleria-atan2ftest PRIVATE cleria)
+
 # cleria-inputtest — the binding tables and the mapper FUN_005d2ba0 vs build/shell_re/CONFIG.md §3.
 add_executable(cleria-inputtest apps/cleria-inputtest/main.cpp)
 target_link_libraries(cleria-inputtest PRIVATE cleria)
@@ -466,7 +471,7 @@ else()
 endif()
 set(CLERIA_TEST_ASSETS "${_cleria_assets_default}" CACHE PATH "Asset root the ctest suite runs on")
 enable_testing()
-foreach(t collisiontest bodytest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test boss04test boss05test boss06test boss07test boss08test camtest skilltest actiontest locustest chrtest movietest settingstest inputtest mousetest gamedatatest accesstest padtest videotest)
+foreach(t collisiontest bodytest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test boss04test boss05test boss06test boss07test boss08test camtest skilltest actiontest locustest chrtest movietest settingstest inputtest mousetest gamedatatest accesstest padtest videotest atan2ftest)
   add_test(NAME ${t}
            COMMAND cleria-${t} "${CLERIA_TEST_ASSETS}"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
@@ -512,6 +517,8 @@ add_test(NAME speedruntest COMMAND cleria-speedruntest "${CLERIA_TEST_ASSETS}" W
 # json is generic (src/cleria/json); the WinHTTP WebSocket is cleria-net. Both were written for the
 # built-in Archipelago client (ARCHIPELAGO.md), removed in favour of the Lua mod samples/mods/archipelago_lua.
 target_sources(cleria PRIVATE src/cleria/json.cpp)
+# atan2f as the x64 MSVC C library computes it, and off Windows the atan2f every program links (platform_math.cpp).
+target_sources(cleria PRIVATE src/cleria/platform_math.cpp)
 add_library(cleria-net STATIC src/cleria/net/websocket.cpp src/cleria/net/socket.cpp)
 if(WIN32)
 target_link_libraries(cleria-net PUBLIC cleria winhttp ws2_32)

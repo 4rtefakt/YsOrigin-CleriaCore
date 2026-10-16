@@ -135,6 +135,23 @@ int main() {
         }
         check(f224 && exp && b.destroyed() && t >= 500 && t <= 503, "death: EXP at b4 2, flag 224 and the destroy at b4 500");
     }
+    {   // The death in a boss rush [EXPORT go_mesh_boss05.c Pictimos_Brain; PICTIMOS.md C13]: flag 156 = 0 when the
+        // alpha (target 0 at 1/4 a frame from b4 350) reaches <= 0.2 at b4 354; the gate then freezes the brain, so
+        // b4 500 (flag 224, the destroy) is never reached.
+        Boss05Setup s; s.boss_rush = true;
+        Rig r; Boss05 b(s);
+        r.step(b);
+        b.add_part_damage(0, 9000);
+        bool f224 = false; int t = 0, f156 = -1;
+        for (; t < 600 && f156 < 0; ++t) {
+            const Boss05Output o = r.step(b);
+            for (auto& f : o.flags) { f224 |= f.first == 224; if (f.first == 156 && f.second == 0) f156 = b.frames(); }
+        }
+        r.in.fight = false;                                        // the host applied 156 = 0
+        for (int k = 0; k < 300; ++k) for (auto& f : r.step(b).flags) f224 |= f.first == 224;
+        check(f156 == 354 && !f224 && !b.destroyed() && b.frames() == 354,
+              "boss rush: flag 156 = 0 at b4 354; frozen after it: no flag 224, never destroyed");
+    }
     std::printf("%s\n", fails ? "SOME TESTS FAILED" : "ALL PASS");
     return fails ? 1 : 0;
 }

@@ -10,7 +10,7 @@
 // (section 7, 150..209 ticks, cooldown + 240; above Normal it homes through the air), then a
 // 28-tick spin-down (section 8, ungated) and a retreat for the rest of the cooldown. A hit
 // reaction cancels the spin. Section 7's pulse is a sphere centred on it (hit_volume.hpp).
-// [not modelled] the keep-out box restore (FUN_0042dc90); byte +0x9d1.
+// [not modelled] byte +0x9d1.
 #include <cmath>
 
 #include "cleria/actor.hpp"

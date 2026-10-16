@@ -341,7 +341,8 @@
                     if (en->ai_index >= 3 && en->ai_index != 83 && en->ai_index != 16 && en->ai_index != 80 && !hugo_eye(*en) &&
                         !enemy_handler_puppet(en->ai_index, env)) {
                         Vec3 org = env.self;
-                        if (ai::keep_out(en->ai, org, exit_volume)) {
+                        env.kept_out = ai::keep_out(en->ai, org, exit_volume);
+                        if (env.kept_out) {
                             if (keepout_log)
                                 std::printf("  [keepout] t%llu #%d cast %d (%.2f, %.2f, %.2f) -> (%.2f, %.2f, %.2f)\n",
                                             (unsigned long long)tick_count, en->instance_id, en->cast_id, env.self.x, env.self.y,
@@ -653,14 +654,14 @@
                     if (!c) continue;
                     if (s.hp >= 0) c->hp = s.hp;
                     if (s.exp_copy) c->exp_reward = parent->exp_reward;
-                    const std::string stem = casts.sprite_stem(c->cast_id);
+                    const std::string stem = actor_stem(*c, casts);
                     if (stem.empty() || !efx.kinds.count(stem)) continue;
                     const Cast* cc = casts.get(c->cast_id);
                     render.push_back({c, stem, (cc && !cc->display.empty()) ? cc->display : stem});
                     bind_one_enemy(render.back());
                 }
                 for (Actor* c : new_children) {
-                    const std::string stem = casts.sprite_stem(c->cast_id);
+                    const std::string stem = actor_stem(*c, casts);
                     if (!stem.empty() && !efx.kinds.count(stem)) efx.load_kind(g, asset_root, stem);
                     if (stem.empty() || !efx.kinds.count(stem)) continue;
                     const Cast* cc = casts.get(c->cast_id);

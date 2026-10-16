@@ -11,7 +11,7 @@
 //    while fewer than 13 actors live;
 //  - the charge (section 8; 13% of the ticks the leap did not start): run x2, turn x1.25, 1 / 2 / 3 bullets a
 //    tick through the Marker 1 window, then at Marker 2 it stuns itself for 99 ticks (stars, SE 184).
-// [not modelled] the keep-out restore; fx+0x201 = 1 on the bullets' effects; the two mod-5 globals (no reader);
+// [not modelled] fx+0x201 = 1 on the bullets' effects; the two mod-5 globals (no reader);
 // the stars' rotation. [approx] effect 60 as the action player's stars record.
 #include <cmath>
 

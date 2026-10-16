@@ -202,8 +202,11 @@ void WndDialog::update(const WndInput& in, std::vector<int>& sounds) {
     if (!held) released_ = true;
     if (reveal_ < reveal_end_) {
         if (tick_sound_ && ++tick_ > 4) { tick_ = 0; sounds.push_back(0x0c); }
-        reveal_ += (close_ || fast_ || text_speed == 1) ? 0x30000u : 0x7000u;   // [not modelled] held bit 0x1 (fast)
+        reveal_ += (fast_ || text_speed == 1) ? 0x30000u : 0x7000u;
         if (text_speed == 2) reveal_ = std::max(reveal_, reveal_end_);   // CleriaCore: instant text
+        // The fast latch +0x1fd4 is set after the step, so it speeds up the next tick [BYTES 0x578ef9..0x578f2a]:
+        // a closing dialog (+0x1fd5), or an interactive one while held bit 0x1 (Attack) is down.
+        if (close_ || (interactive && in.attack_held)) fast_ = true;
         return;
     }
     revealed_ = true;

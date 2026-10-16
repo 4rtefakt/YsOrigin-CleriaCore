@@ -7,7 +7,7 @@
 // four-way volleys of ASO section 7 (FireBullet x4 at facing + 0/90/180/270, effect 310)
 // alternate between an "x" and a "+". A damaging hit before the volley fires can cut the
 // stand short and re-fire, up to max(d+1, 0) times. Handlers: as M100's minus the arena
-// clamp FUN_0047abf0. [not modelled] the keep-out box revert (FUN_0042dc90 over 0x76a2b4).
+// clamp FUN_0047abf0.
 #include <cmath>
 
 #include "cleria/brains/brains.hpp"

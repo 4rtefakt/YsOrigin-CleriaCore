@@ -12,7 +12,7 @@
 // The handler's extras live here too: the partner HP link, the hit counter, the bats'
 // crowding fade, the unconditional arena clamp, Durable after lim(d) hits, and (via the
 // death hook) killing the flock when it dies.
-// [not modelled] the keep-out box restore (FUN_0042dc90); effect attachment (FUN_00451c20 —
+// [not modelled] effect attachment (FUN_00451c20 —
 // the claw slashes are placed, not parented); the player-dead helper's forced section 2;
 // the R() draw FUN_00459410 may make inside a child spawn.
 #include <algorithm>

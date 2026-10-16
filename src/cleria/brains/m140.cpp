@@ -11,7 +11,7 @@
 // end with form (b); the standard launch tail (K 0.1, push +0x7e0).
 // [not modelled] the effect's particle-borne hit (EFFECTHIT.md); its attachment (re-placed on
 // the actor every tick instead); the KILLFX 16-step fade, and the kill on the handler's dead
-// path; the keep-out box restore (FUN_0042dc90).
+// path.
 #include <cmath>
 
 #include "cleria/actor.hpp"

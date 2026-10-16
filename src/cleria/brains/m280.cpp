@@ -11,7 +11,7 @@
 // 400 / 9999) runs out, or at once in the player's sections 0x10d / 0x110: a 5-u shove behind the
 // target on knock channel 2, a forced section 1, a 300..399 cooldown. On an ally it heals 25 / 40 /
 // 55 / 70 every 24 ticks (EF2 325 every 32) until a 200 / 300 / 400 budget is spent.
-// [not modelled] the keep-out box restore (FUN_0042dc90); Hugo's +0x7c4 release; the
+// [not modelled] Hugo's +0x7c4 release; the
 // green heal popups (FUN_004fae00); the effects' attachment to the target (spawned at its origin);
 // FUN_00451730 kills every live effect of the id (here only this Chups's own); the pool sampling's
 // order and count (the non-player actors in list order behind a player slot 0) [H].
