@@ -162,18 +162,24 @@ jobs:
           ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc=size=320x160:rate=60 -t 2 -c:v mpeg4 -vtag XVID -an test_movie.avi
           ./build/cleria-movietest --file test_movie.avi movie_frame.png
 
-      # cleria-view itself, with no game data: the first-run setup screen on the Metal adapter, drawn once
-      # into an offscreen target and once into a shown window's CAMetalLayer surface, each frame read back.
+      # cleria-view itself, with no game data: the first-run setup screen on the Metal adapter, drawn into an
+      # offscreen target and read back. Then in a shown window: its CAMetalLayer surface must be created; the
+      # runner's display reports the window occluded (no drawable), so that frame is checked only if drawn.
       - name: Launch cleria-view (no game data)
         if: ${{ !cancelled() }}
         timeout-minutes: 5
         run: |
+          set -o pipefail
           export CLERIA_DATA="$RUNNER_TEMP/no-data"
           CLERIA_SETUP_DRIVE="20:shot=setup_offscreen.ppm;21:quit" ./build/cleria-view
-          CLERIA_DRIVE_VISIBLE=1 CLERIA_SETUP_DRIVE="20:shot=setup_window.ppm;21:quit" ./build/cleria-view
+          CLERIA_DRIVE_VISIBLE=1 CLERIA_SETUP_DRIVE="20:shot=setup_window.ppm;21:quit" ./build/cleria-view | tee window.log
+          grep -q '^\[setup\] surface: [1-9]' window.log
           python3 - setup_offscreen.ppm setup_window.ppm <<'EOF'
-          import struct, sys, zlib
+          import os, struct, sys, zlib
           for p in sys.argv[1:]:
+              if p == 'setup_window.ppm' and not os.path.exists(p):
+                  print(f'{p}: not drawn (the window is occluded on the runner)')
+                  continue
               magic, size, _, px = open(p, 'rb').read().split(b'\n', 3)
               w, h = map(int, size.split())
               colours = len({px[i:i + 3] for i in range(0, len(px), 21)})

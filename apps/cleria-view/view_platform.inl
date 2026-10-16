@@ -72,6 +72,16 @@ static WGPUSurface create_window_surface(WGPUInstance instance, SDL_Window* win)
 #endif
 }
 
+// No surface texture this frame (the loops then skip it). Reconfiguring fixes an outdated or lost surface, but
+// not a window macOS reports hidden (minimised, on another Space, fully covered: wgpu-native's Occluded, Metal
+// only): there the loop waits a frame's time instead, as a presented frame waits for vsync, rather than spin a
+// core until the window shows again. True when the caller should reconfigure.
+static bool surface_retry(WGPUSurfaceGetCurrentTextureStatus status) {
+    if (int(status) != int(WGPUSurfaceGetCurrentTextureStatus_Occluded)) return true;
+    SDL_Delay(16);
+    return false;
+}
+
 // This exe's full path (the .cleriamod association's open command); empty when unknown.
 static fs::path platform_exe_path() {
 #if defined(_WIN32)

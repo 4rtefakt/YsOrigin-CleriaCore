@@ -228,9 +228,9 @@ static fs::path first_run_setup(Gpu& g) {
         if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
             st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
             static int last_status = 0;
-            if (script && int(st.status) != last_status)
-                std::printf("[setup] t%ld no surface texture (status %d)\n", frame, last_status = int(st.status));
-            configure();
+            if (script && int(st.status) != last_status)   // a driven run says why its frames are missing
+                std::printf("[setup] t%ld no surface texture (status 0x%x)\n", frame, unsigned(last_status = int(st.status)));
+            if (surface_retry(st.status)) configure();
             continue;
         }
         WGPUTextureView view = wgpuTextureCreateView(st.texture, nullptr);
