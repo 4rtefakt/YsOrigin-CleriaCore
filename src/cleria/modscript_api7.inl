@@ -1222,12 +1222,14 @@ int l_udp_gc(lua_State* L) { return sock_gc<UdpUd>(L, kUdpMt); }
 int l_udp_bind(lua_State* L) {                           // ([port [, any]]) -> the port, or false, why
     std::string err;
     net::UdpSocket& s = udp_check(L);
+    if (!M(L).limits().network) return push_fail(L, "no network here");
     if (!s.bind(int(luaL_optinteger(L, 2, 0)), lua_isnoneornil(L, 3) || lua_toboolean(L, 3), &err)) return push_fail(L, err);
     lua_pushinteger(L, s.port());
     return 1;
 }
 int l_udp_send(lua_State* L) {                           // (host, port, data) -> true, or false, why
     std::string err;
+    if (!M(L).limits().network) return push_fail(L, "no network here");
     if (!udp_check(L).send_to(str_arg(L, 2), int(luaL_checkinteger(L, 3)), bytes_arg(L, 4), &err)) return push_fail(L, err);
     lua_pushboolean(L, 1);
     return 1;
@@ -1252,12 +1254,14 @@ int l_tcp_gc(lua_State* L) { return sock_gc<TcpUd>(L, kTcpMt); }
 int l_tcp_connect(lua_State* L) {                        // (host, port [, timeout seconds]) : "open" or "close" follows in poll()
     const lua_Integer port = luaL_checkinteger(L, 3);
     if (port < 1 || port > 65535) return luaL_argerror(L, 3, "a port is 1..65535");
+    if (!M(L).limits().network) return 0;
     tcp_check(L).connect(str_arg(L, 2), int(port), int(std::clamp(luaL_optnumber(L, 4, 10.0), 1.0, 60.0) * 1000.0));
     return 0;
 }
 int l_tcp_listen(lua_State* L) {                         // ([port [, any]]) -> the port, or false, why
     std::string err;
     net::TcpSocket& s = tcp_check(L);
+    if (!M(L).limits().network) return push_fail(L, "no network here");
     if (!s.listen(int(luaL_optinteger(L, 2, 0)), lua_isnoneornil(L, 3) || lua_toboolean(L, 3), &err)) return push_fail(L, err);
     lua_pushinteger(L, s.port());
     return 1;
@@ -1325,6 +1329,7 @@ int l_net_http(lua_State* L) {                           // ({url =, method =, b
         }
     }
     lua_pop(L, 1);
+    if (!m.limits().network) return 0;
     auto job = std::make_shared<HttpJob>();
     lua_pushvalue(L, 2);
     m.http_jobs_.emplace_back(job, luaL_ref(L, LUA_REGISTRYINDEX));
