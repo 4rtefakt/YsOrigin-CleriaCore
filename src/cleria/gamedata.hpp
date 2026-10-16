@@ -42,8 +42,10 @@ Validation validate(const std::filesystem::path& dir);
 
 // Steam installs: the Steam root from the registry (HKCU\Software\Valve\Steam SteamPath, then
 // HKLM ...\Valve\Steam InstallPath), every library in its steamapps\libraryfolders.vdf, and in
-// each one appmanifest_207350.acf's installdir (default "Ys Origin"). Read-only. Returns every
-// candidate folder that exists, validated; ok ones first.
+// each one appmanifest_207350.acf's installdir (default "Ys Origin"). Linux / macOS: the native
+// Steam roots, and a Windows Steam inside a Wine prefix (~/.wine; on macOS every CrossOver and
+// Whisky bottle), its libraries' "D:\..." paths read through the prefix's dosdevices. Read-only.
+// Returns every candidate folder that exists, validated; ok ones first.
 std::vector<Validation> find_installs();
 
 // FNV-1a 64 over both .ni indexes and both .na sizes: identifies the game data version.

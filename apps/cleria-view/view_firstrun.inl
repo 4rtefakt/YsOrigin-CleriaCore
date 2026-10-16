@@ -11,7 +11,8 @@
 //
 // Returns the data folder once it is Ready (the start then goes on with it), or an empty path: the user quit.
 //
-// CLERIA_SETUP_DRIVE="<frame>:<cmd>;..." runs it with no display (a hidden window, an offscreen target):
+// CLERIA_SETUP_DRIVE="<frame>:<cmd>;..." runs it with no display (a hidden window, an offscreen target;
+// CLERIA_DRIVE_VISIBLE=1 shows the window and draws into its surface, as CLERIA_DRIVE does):
 //   find            the first valid install found, as its row does
 //   locate=<dir>    as if the folder dialog answered <dir>
 //   cancel          the Cancel row
@@ -28,7 +29,7 @@ static fs::path first_run_setup(Gpu& g) {
     if (!SDL_Init(SDL_INIT_VIDEO)) { std::fprintf(stderr, "SDL: %s\n", SDL_GetError()); return {}; }
     if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) std::fprintf(stderr, "SDL gamepad: %s\n", SDL_GetError());
     const char* script = std::getenv("CLERIA_SETUP_DRIVE");
-    const bool hidden = script != nullptr;
+    const bool hidden = script != nullptr && !std::getenv("CLERIA_DRIVE_VISIBLE");
     SDL_Window* win = SDL_CreateWindow("CleriaCore - Setup", 1280, 800,
                                        SDL_WINDOW_RESIZABLE | kWindowGpuFlag | (hidden ? SDL_WINDOW_HIDDEN : 0));
     if (!win) { std::fprintf(stderr, "SDL window: %s\n", SDL_GetError()); return {}; }
@@ -61,6 +62,7 @@ static fs::path first_run_setup(Gpu& g) {
         }
         WGPUSurfaceConfiguration sc = {};
         sc.device = g.device; sc.format = fmt; sc.usage = WGPUTextureUsage_RenderAttachment;
+        if (script) sc.usage |= WGPUTextureUsage_CopySrc;   // a driven run's `shot`
         sc.width = cw; sc.height = ch; sc.alphaMode = WGPUCompositeAlphaMode_Auto;
         sc.presentMode = WGPUPresentMode_Fifo;
         wgpuSurfaceConfigure(surface, &sc);

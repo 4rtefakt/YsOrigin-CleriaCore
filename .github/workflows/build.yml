@@ -161,3 +161,34 @@ jobs:
         run: |
           ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc=size=320x160:rate=60 -t 2 -c:v mpeg4 -vtag XVID -an test_movie.avi
           ./build/cleria-movietest --file test_movie.avi movie_frame.png
+
+      # cleria-view itself, with no game data: the first-run setup screen on the Metal adapter, drawn once
+      # into an offscreen target and once into a shown window's CAMetalLayer surface, each frame read back.
+      - name: Launch cleria-view (no game data)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 5
+        run: |
+          export CLERIA_DATA="$RUNNER_TEMP/no-data"
+          CLERIA_SETUP_DRIVE="20:shot=setup_offscreen.ppm;21:quit" ./build/cleria-view
+          CLERIA_DRIVE_VISIBLE=1 CLERIA_SETUP_DRIVE="20:shot=setup_window.ppm;21:quit" ./build/cleria-view
+          python3 - setup_offscreen.ppm setup_window.ppm <<'EOF'
+          import struct, sys, zlib
+          for p in sys.argv[1:]:
+              magic, size, _, px = open(p, 'rb').read().split(b'\n', 3)
+              w, h = map(int, size.split())
+              colours = len({px[i:i + 3] for i in range(0, len(px), 21)})
+              print(f'{p}: {w}x{h}, {colours} colours')
+              assert magic == b'P6' and len(px) == w * h * 3 and colours > 50, f'{p}: not the setup screen'
+              raw = b''.join(b'\0' + px[y * w * 3:(y + 1) * w * 3] for y in range(h))
+              chunk = lambda t, b: struct.pack('>I', len(b)) + t + b + struct.pack('>I', zlib.crc32(t + b))
+              open(p[:-4] + '.png', 'wb').write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
+                                                + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
+          EOF
+
+      - name: Upload the setup screen shots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-setup-screen
+          path: setup_*.png
+          if-no-files-found: ignore

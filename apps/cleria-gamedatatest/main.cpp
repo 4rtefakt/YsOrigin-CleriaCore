@@ -108,6 +108,42 @@ int main(int argc, char** argv) {
         fs::remove_all(tmp, ec);
     }
 
+#ifndef _WIN32
+    // ---- find_installs under Wine (a scratch $HOME) -----------------------------------------
+    {
+        const fs::path tmp = fs::temp_directory_path() / "cleria-gamedatatest-wine";
+        std::error_code ec;
+        fs::remove_all(tmp, ec);   // our own scratch folder only
+        const fs::path steam = tmp / ".wine" / "drive_c" / "Program Files (x86)" / "Steam";
+        fs::create_directories(steam / "steamapps", ec);
+        // A second library on the prefix's D: drive, as the Windows client writes it.
+        { std::ofstream(steam / "steamapps" / "libraryfolders.vdf")
+              << "\"libraryfolders\"\n{\n\t\"1\"\n\t{\n\t\t\"path\"\t\t\"D:\\\\Games\\\\SteamLib\"\n\t}\n}\n"; }
+        fs::create_directories(tmp / ".wine" / "dosdevices", ec);
+        fs::create_directories(tmp / "ddrive" / "Games" / "SteamLib" / "steamapps" / "common" / "Ys Origin", ec);
+        fs::create_directory_symlink(tmp / "ddrive", tmp / ".wine" / "dosdevices" / "d:", ec);
+        auto found = [&](const fs::path& want) {
+            for (const gamedata::Validation& v : gamedata::find_installs())
+                if (fs::weakly_canonical(v.root, ec) == fs::weakly_canonical(want, ec)) return true;
+            return false;
+        };
+        const char* old_home = std::getenv("HOME");
+        const std::string saved = old_home ? old_home : "";
+        setenv("HOME", tmp.c_str(), 1);
+        check(found(tmp / "ddrive" / "Games" / "SteamLib" / "steamapps" / "common" / "Ys Origin"),
+              "find_installs: a Wine prefix's Steam library on D: (dosdevices/d:)");
+#ifdef __APPLE__
+        const fs::path bottle = tmp / "Library" / "Application Support" / "CrossOver" / "Bottles" / "Steam";
+        fs::create_directories(bottle / "drive_c" / "Program Files (x86)" / "Steam" / "steamapps" / "common" / "Ys Origin", ec);
+        check(found(bottle / "drive_c" / "Program Files (x86)" / "Steam" / "steamapps" / "common" / "Ys Origin"),
+              "find_installs: a CrossOver bottle's Steam");
+#endif
+        if (old_home) setenv("HOME", saved.c_str(), 1);
+        else unsetenv("HOME");
+        fs::remove_all(tmp, ec);
+    }
+#endif
+
     // ---- the real install ------------------------------------------------------------------
     fs::path game;
     if (const char* e = std::getenv("CLERIA_GAME_DIR")) game = e;
