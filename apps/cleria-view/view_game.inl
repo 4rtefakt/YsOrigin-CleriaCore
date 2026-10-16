@@ -7018,10 +7018,10 @@ title_again:
                 else if (skip_now) skip_cutscene = true;
             } else if (!paused) {
                 // [EXPORT 004106e0.c L47-57] the book opens only while the fader is clear (0x769f1c == 0):
-                // never during a door's fade-out / fade-in — and never in a Time Attack / Arena run (flag 193 != 0)
-                // [BYTES 0x41071f..0x410779]. [not modelled] its gate on a boss fight (flag 156).
+                // never during a door's fade-out / fade-in, never in a Time Attack / Arena run (flag 193 != 0) and
+                // never in a boss fight (flag 156 = DAT_0076bb8c != 0) [BYTES 0x41071f..0x410779].
                 if ((inf.pressed & input::kMenu) && (!fly || ks[SDL_SCANCODE_ESCAPE]) && csHost.fade_cur == 0.0f &&
-                    game.g_flags[193] == 0) {
+                    game.g_flags[193] == 0 && game.g_flags[156] == 0) {
                     // The book (FUN_00443150 on the menu bit's edge, PAUSEBOOK_DRAW.md §1): Esc or the
                     // Camp Menu binding (only Esc in free-fly, whose raw keys may overlap it). The game
                     // ticks stop with this one.
