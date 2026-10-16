@@ -5437,6 +5437,8 @@ title_again:
                 std::printf("  [drive] hud slot %d badge '%s'%s x %.0f\n", k, hud.equip_badge[k].c_str(),
                             hud.equip_badge_red[k] ? " red" : "",
                             132.0f + 40.0f * float(k) + 31.0f - text_width_mini(hud.equip_badge[k]));
+            for (int k = 0; k < 4; ++k)
+                std::printf("  [drive] hud slot %d icon %s\n", k, !hud.equip_bind[k] ? "none" : hud.equip_dim[k] ? "dim" : "lit");
         } else if (cmd == "hudskill") {                // the HUD's skill badge cell (view_hud.inl skill_badge_cell)
             Rc c{};
             if (skill_badge_cell(inv.magic, character, player.boosting, c))
@@ -9365,11 +9367,13 @@ title_again:
         hud.overlay_alpha = cf_bind ? csHost.cf_alpha : 0.0f;
         // Bind the HUD's four equipment slots (FUN_0043fe00): weapon, armor, foot (flags
         // 151..153) and the accessory (0x76a628; 0xff = none), and the level badges of the first three
-        // (pausebook.hpp hud_weapon_label / hud_gear_label). [not modelled] the dimming of a used-up item.
+        // (pausebook.hpp hud_weapon_label / hud_gear_label), each dimmed when its item's count is 0.
         {
             const int acc = (inv.accessory == 0xff) ? -1 : inv.accessory;
             const int ids[4] = {game.g_flags[151], game.g_flags[152], game.g_flags[153], acc};
-            hud.set_equip(g, items_tbl, asset_root, ids);
+            int counts[4];
+            for (int k = 0; k < 4; ++k) counts[k] = (ids[k] >= 0 && ids[k] < 128) ? game.g_flags[ids[k]] : -1;
+            hud.set_equip(g, items_tbl, asset_root, ids, counts);
             std::string lab[3];
             bool red[3] = {};
             for (int k = 0; k < 3; ++k) {

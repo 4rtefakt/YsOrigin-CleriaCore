@@ -147,6 +147,7 @@ struct Hud {
     // footwear / accessory[0]; a slot with id < 0 draws its bare frame.
     std::unordered_map<int, WGPUBindGroup> icon_binds;
     WGPUBindGroup equip_bind[4] = {};
+    bool equip_dim[4] = {};                  // the item's count [0x76b91c + id * 4] is 0: tint & 0xff303030
     std::vector<HudVertex> equip_verts[4];
     // The level badges of slots 0..2 (set_equip_badges): the text, and red for an item whose count is 0.
     std::string equip_badge[3];
@@ -300,10 +301,13 @@ struct Hud {
     }
     // Bind the four HUD slots to the currently equipped item ids (-1 = empty). Each item's
     // icon is its own MENU/ICON/<STEM>.DDS, cached by id so this is cheap to call per frame.
-    void set_equip(Gpu& g, const ItemTable& items, const fs::path& asset_root, const int ids[4]) {
+    // `counts[i]` = the slot item's count [0x76b91c + id * 4] (g_flags[id]): < 0 draws no icon, 0 a dimmed one
+    // [BYTES 0x43fe54..0x43fe72].
+    void set_equip(Gpu& g, const ItemTable& items, const fs::path& asset_root, const int ids[4], const int counts[4]) {
         for (int i = 0; i < 4; ++i) {
             const int id = ids[i];
-            if (id < 0 || id == 0xff) { equip_bind[i] = nullptr; continue; }
+            equip_dim[i] = counts[i] == 0;
+            if (id < 0 || id == 0xff || counts[i] < 0) { equip_bind[i] = nullptr; continue; }
             auto it = icon_binds.find(id);
             if (it == icon_binds.end()) {
                 std::uint32_t w = 0, h = 0;
@@ -706,7 +710,7 @@ struct Hud {
         //   UV (0.921875,0.921875)..(1,1) = atlas px (472,472)..(512,512)
         // Builder D blits each equipped item's icon on top at (132+40i, 682) — a 6px
         // inset — at 32x32, from a per-item texture handle array (DAT_0074a958[itemId]),
-        // NOT from the atlas. Unequipped slots are drawn greyed (tint & 0xff303030). We
+        // NOT from the atlas. An item whose count is 0 is drawn greyed (tint & 0xff303030). We
         // draw the empty frames, then blit each equipped icon on top.
         for (int i = 0; i < 4; ++i) {
             const Ar d{126.0f + 40.0f * i, 676.0f, 166.0f + 40.0f * i, 716.0f};
@@ -722,9 +726,10 @@ struct Hud {
             // HUD does not do. [C-DIS]
             const float x0 = m.x(132.0f + 40.0f * i), y0 = m.y(682.0f);
             const float x1 = m.x(164.0f + 40.0f * i), y1 = m.y(714.0f);
+            const std::uint8_t c = equip_dim[i] ? 0x30 : 0xff;   // [approx] the tint's rgb taken as white
             auto V = [&](float x, float y, float u, float v) {
                 equip_verts[i].push_back({x / float(sw) * 2.0f - 1.0f,
-                                          1.0f - y / float(sh) * 2.0f, u, v, 255, 255, 255, 255});
+                                          1.0f - y / float(sh) * 2.0f, u, v, c, c, c, 255});
             };
             V(x0, y0, 0, 0); V(x1, y0, 1, 0); V(x1, y1, 1, 1);
             V(x0, y0, 0, 0); V(x1, y1, 1, 1); V(x0, y1, 0, 1);
