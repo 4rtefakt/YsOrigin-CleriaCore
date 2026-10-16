@@ -101,7 +101,12 @@ float msvc_atan2f(float fy, float fx) noexcept {
     std::memcpy(&ufy, &fy, 4);
     const bool xneg = ufx & 0x80000000u, yneg = ufy & 0x80000000u;
     const std::uint32_t aufx = ufx & 0x7fffffffu, aufy = ufy & 0x7fffffffu;
-    const int diffexp = int((ufy >> 23) & 0xff) - int((ufx >> 23) & 0xff);
+    const double x = fx, y = fy;
+    // The exponents are the doubles' (the CRT's, measured): a denormal float counts at its true size.
+    std::uint64_t ux, uy;
+    std::memcpy(&ux, &x, 8);
+    std::memcpy(&uy, &y, 8);
+    const int diffexp = int((uy >> 52) & 0x7ff) - int((ux >> 52) & 0x7ff);
 
     if (aufx > 0x7f800000u || aufy > 0x7f800000u) return fx + fy;  // a NaN
     if (aufy == 0) {                                                 // y = +-0: +-0 for x > 0, +-pi for x < 0
@@ -109,11 +114,10 @@ float msvc_atan2f(float fy, float fx) noexcept {
         return fy;
     }
     if (aufx == 0) return yneg ? float(-piby2) : float(piby2);
-    const double x = fx, y = fy;
     if (diffexp > 26) return yneg ? float(-piby2) : float(piby2);  // |y / x| > 2^26
     if (diffexp < -13 && !xneg) {                                   // atan(y / x) = y / x
         if (diffexp < -150) return yneg ? -0.0f : 0.0f;
-        return float(y / x);  // (AMD scales by 2^100 and back for a denormal result; the double y / x is the same)
+        return float(y / x);  // (AMD scales by 2^100 and back for a denormal result: the same double y / x)
     }
     if (diffexp < -26 && xneg) return yneg ? float(-pi) : float(pi);
     if (aufx == 0x7f800000u && aufy == 0x7f800000u) {

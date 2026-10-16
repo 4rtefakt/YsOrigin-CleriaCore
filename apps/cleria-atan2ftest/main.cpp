@@ -120,7 +120,19 @@ int main() {
         if (!(std::isnan(m) && std::isnan(c)) && bits(m) != bits(c) && any_diff++ < 10)
             std::printf("  bits (%.9g, %.9g): msvc_atan2f %08x, CRT %08x\n", a, b, bits(m), bits(c));
     }
+    // One argument denormal, the other anywhere from denormal to 2^-100.
+    long denormal_diff = 0;
+    for (long i = 0; i < 8L * 1024 * 1024; ++i) {
+        const std::uint64_t r = rnd();
+        const std::uint32_t d = std::uint32_t(r) & 0x807fffffu;
+        const std::uint32_t o = (std::uint32_t(r >> 32) & 0x807fffffu) | (std::uint32_t((r >> 24) % 28) << 23);
+        const float y = from_bits(r & (1ull << 63) ? d : o), x = from_bits(r & (1ull << 63) ? o : d);
+        if (bits(cleria::msvc_atan2f(y, x)) != bits(atan2f(y, x)) && denormal_diff++ < 10)
+            std::printf("  denormal (%.9g, %.9g): msvc_atan2f %08x, CRT %08x\n", y, x, bits(cleria::msvc_atan2f(y, x)),
+                        bits(atan2f(y, x)));
+    }
     check(game_diff == 0, "32M game-sized random arguments match the CRT bit for bit");
+    check(denormal_diff == 0, "8M arguments with a denormal match the CRT bit for bit");
     check(any_diff == 0, "32M random bit patterns match the CRT bit for bit");
 #endif
 
