@@ -166,6 +166,12 @@ CASES = {
         drive="20:esctap;70:right;80:right;90:right;120:ok;160:up;200:up;230:ok;260:left;290:ok;400:quit",
         expect=["[book] Return to Title", "[game] Return to Title: back to the title",
                 "[title] t60 fader 0.00 list 1 book 0"]),
+    # FUN_004106e0 [BYTES 0x41071f..0x410779]: no pause book during a boss fight (flag 156 = DAT_0076bb8c): Esc does
+    # nothing and the player walks on.
+    "book_boss_gate": dict(
+        room="S_10/S_1009/S_1009",
+        drive="5:flag=156,1;10:pos;20:esctap;30:move=1,0,20;60:pos;70:quit",
+        expect=["feet (0.055, 2.000, 7.800)", "feet (2.827, 2.000, 7.800)"]),
     # PLAYTEST_1_MISC.md #1: the book's Crystal map starts @UseWing with the player bound (FUN_005abd10
     # 0x5accea), so its Eft_LocateChr(51, 998, .., 'warp') rides the player. The cleanse unlocks warp 1.
     "crystal_warp_book": dict(
