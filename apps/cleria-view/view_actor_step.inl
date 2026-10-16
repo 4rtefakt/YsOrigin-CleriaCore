@@ -96,7 +96,8 @@
                     // is clamped to [-0.05, +0.1] (0x45a63f), the timer steps 0.0118 and the landing margin is
                     // 0.01 (0x45beee, 0x45be61), xz x 0.8 (x 0.9 with blessing bit 1; 0x45a82a..0x45a87d), and on
                     // lava / blood (+0x4b9 0x0d / 0x11) xz and a rising dy x 0.6 (xz 0.8 blessed; 0x45a8b0).
-                    // [not modelled] the foot gear's x 1 (0x76a624 & 0x1000000), as for the player.
+                    // The water x 0.8 is skipped while the PLAYER wears the water gear (0x76a624 & 0x1000000): the test
+                    // reads the global with no cast check, so it holds for every actor [BYTES 0x45a82a..0x45a834].
                     const bool sub = a.ai.in_water;
                     float dy = a.flyer ? a.vert.t : vertical_dy(a.vert, sub, sub && a.ai.surf_ray == 0x12);
                     if (a.vert.grounded && a.ai.surf != kSurfaceIce) a.mover.ice_tail = 0;   // 0x45d139
@@ -111,7 +112,8 @@
                     if (in_sand) { dy = std::clamp(dy, -0.015f, 0.03f); a.ai.surf = 0x12; }   // +0x4b9 = 0x12
                     float mdx = a.mover.dx, mdz = a.mover.dz;
                     {   // sand2: 0.25, xz 0.5 with blessing bit 1 (no cast test, 0x45a762); lava / blood; water
-                        const SurfaceScale ss = surface_scale(a.ai.surf, sub, (game.g_flags[217] & 2) != 0);
+                        const SurfaceScale ss = surface_scale(a.ai.surf, sub, (game.g_flags[217] & 2) != 0,
+                                                              (inv.equip_flags & 0x1000000u) != 0);
                         mdx *= ss.xz; mdz *= ss.xz; if (dy > 0.0f) dy *= ss.up;
                     }
                     Vec3 o1 = collide_and_slide(phys_mesh(room), o0, {mdx, dy, mdz}, a.radius);
