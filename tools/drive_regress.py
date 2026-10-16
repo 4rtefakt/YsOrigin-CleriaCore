@@ -752,7 +752,8 @@ CASES = {
         drive="5:tier=4;6:flag=7,1;7:flag=152,7;8:flag=31,1;9:flag=153,31;10:lua=up 31;40:hudequip;"
               "50:tier=10;51:lua=up 7;52:flag=31,0;60:hudequip;70:quit",
         expect=["hud slot 0 badge 'Lv4' x 136", "hud slot 1 badge 'Lv1' x 176", "hud slot 2 badge 'Max' x 216",
-                "hud slot 0 badge 'Max' x 136", "hud slot 1 badge 'Max' x 176", "hud slot 2 badge 'Max' red x 216"]),
+                "hud slot 2 icon lit", "hud slot 0 badge 'Max' x 136", "hud slot 1 badge 'Max' x 176",
+                "hud slot 2 badge 'Max' red x 216", "hud slot 2 icon dim"]),
     "hud_damage_numbers": dict(
         room="S_10/S_1002/S_1002",
         drive="100:near=17;101:atk;140:hudstate;150:hurt=60;160:quit",
