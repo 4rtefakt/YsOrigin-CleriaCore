@@ -43,8 +43,7 @@ static fs::path first_run_setup(Gpu& g) {
         return {};
     }
     if (script && surface)
-        std::printf("[setup] surface: %zu format(s), usages 0x%llx
-", caps.formatCount, (unsigned long long)caps.usages);
+        std::printf("[setup] surface: %zu format(s), usages 0x%llx\n", caps.formatCount, (unsigned long long)caps.usages);
     WGPUTextureFormat fmt = offscreen ? WGPUTextureFormat_RGBA8Unorm : caps.formats[0];
     for (std::size_t i = 0; i < caps.formatCount; ++i)      // the linear format, as render_window picks it
         if (caps.formats[i] == WGPUTextureFormat_RGBA8Unorm || caps.formats[i] == WGPUTextureFormat_BGRA8Unorm) {
@@ -230,8 +229,7 @@ static fs::path first_run_setup(Gpu& g) {
             st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
             static int last_status = 0;
             if (script && int(st.status) != last_status)
-                std::printf("[setup] t%ld no surface texture (status %d)
-", frame, last_status = int(st.status));
+                std::printf("[setup] t%ld no surface texture (status %d)\n", frame, last_status = int(st.status));
             configure();
             continue;
         }
