@@ -84,7 +84,7 @@ jobs:
         run: |
           opts=""
           [ "$RUNNER_OS" != Windows ] && opts="-DCLERIA_FFMPEG=ON -DCLERIA_CURL=ON"
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCLERIA_RELEASE=ON $opts "-DCLERIA_TEST_ASSETS=$GITHUB_WORKSPACE/no-assets"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCLERIA_RELEASE=ON "-DCLERIA_VERSION=$VERSION" $opts "-DCLERIA_TEST_ASSETS=$GITHUB_WORKSPACE/no-assets"
 
       - name: Build
         run: cmake --build build --parallel --target cleria-view cleria-gamedata cleria-movietest

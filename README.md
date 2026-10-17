@@ -60,7 +60,7 @@ It is not made, endorsed or supported by Nihon Falcom or XSEED, and it contains 
 
 ### 📦 Download
 
-Get the package for your system from the [latest release](https://github.com/4rtefakt/YsOrigin-CleriaCore/releases/latest).
+Get the package for your system from the newest release on the [Releases page](https://github.com/4rtefakt/YsOrigin-CleriaCore/releases).
 None of them contains any game files: CleriaCore uses your own copy of Ys Origin.
 
 | System | Package | What to do |
