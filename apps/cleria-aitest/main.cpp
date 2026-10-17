@@ -2414,10 +2414,14 @@ int main() {
         E.ai.i(0x72c) = 0x82;
         o = enemy_ai_tick(E.ai, ep, r.env, m850);
         check(o.section == 6 && E.ai.i(0x72c) == 0x83 && E.ai.f(0x7b8) == 60.0f, "0x82: the guard (section 6), patience 60");
-        r.env.section = 6; r.env.was_hit = true;
-        enemy_ai_tick(E.ai, ep, r.env, m850);
-        r.env.was_hit = false;
+        r.env.section = 6; r.env.was_hit = true; r.env.aso_marker = 0x1f0;
+        const AiOut og = enemy_ai_tick(E.ai, ep, r.env, m850);
+        r.env.was_hit = false; r.env.aso_marker = 0;
         check(E.ai.i(0x878) == 1 && E.ai.f(0x7b8) == 30.0f, "a blocked hit (+0x3bc & 6 == 4): one block, patience 30");
+        check(og.effects.size() == 1 && og.effects[0].id == 0x1f0 && og.effects[0].attach && og.effects[0].attach_full &&
+              og.effects[0].power == -7.0f && og.effects[0].knock == 10.0f && og.effects[0].rtype == 2 &&
+              og.effects[0].pos.z == r.env.self.z - 1.0f,
+              "the guard's first tick (+0x87c % 45 == 1): the marker's effect, attached 1 u ahead (0x4d0439)");
         int rel = -1;
         for (int k = 0; k < 40 && rel < 0; ++k) if (enemy_ai_tick(E.ai, ep, r.env, m850).section == 0x138) rel = k;
         check(rel == 29, "the patience runs out a tick at a time: the release (section 0x138)");
