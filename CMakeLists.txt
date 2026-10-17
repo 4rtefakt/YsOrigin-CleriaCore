@@ -448,6 +448,9 @@ option(CLERIA_RELEASE "Build for a player package" OFF)
 if(CLERIA_RELEASE)
   target_compile_definitions(cleria-view PRIVATE CLERIA_RELEASE)
 endif()
+# The version on the title menu (release.yml passes the tag's).
+set(CLERIA_VERSION "0.1 (dev)" CACHE STRING "Version shown by cleria-view")
+target_compile_definitions(cleria-view PRIVATE "CLERIA_VERSION=\"${CLERIA_VERSION}\"")
 
 # Copy the runtime DLLs next to the viewer so it runs from the build dir.
 if(WIN32)
