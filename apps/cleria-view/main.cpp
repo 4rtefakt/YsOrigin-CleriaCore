@@ -631,6 +631,7 @@ int main(int argc, char** argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);   // unbuffered: breadcrumbs survive an assert/crash
     init_cull_env();
     modfile_take_args(argc, argv);   // <file>.cleriamod / --install-mod <file> (view_modfile.inl)
+    modfile_keep_args(argc, argv);   // what the Mods tab's Restart now starts again with
     // No args -> free-fly the tower base (S_1000) with default assets.
     fs::path asset_root = (argc >= 2) ? fs::path(argv[1]) : default_assets(argv[0]);
 
@@ -912,5 +913,7 @@ int main(int argc, char** argv) {
     // then loads the first room (needs the pipeline's white_bind/tex_layout).
     // Show the title screen only on a bare launch (no room SOB given); a room argument
     // (the dev/test path) goes straight into that room, unchanged.
-    return render_window(g, asset_root, sob_path, /*show_title=*/argc < 3);
+    const int rc = render_window(g, asset_root, sob_path, /*show_title=*/argc < 3);
+    modfile_relaunch();              // Mods > Restart CleriaCore now (view_modfile.inl)
+    return rc;
 }
