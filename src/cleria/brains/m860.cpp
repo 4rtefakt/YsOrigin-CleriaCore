@@ -36,8 +36,10 @@
 // at +0x88c, the player pinned in x / z for 20 ticks in section 9) follow the pool scan
 // (build/mech_re/KISHGAL_SHIELD.md §3, §4).
 // [not modelled]
-// +0x64 / +0x4be / +0x3c0 writes; the camera shakes / zoom blurs (0x76a5ac.., 0x76a550..,
-// FUN_005e0590, FUN_005d3500); FUN_00451b50's rotation of the 0x121 bullet's effect.
+// +0x64 / +0x4be / +0x3c0 writes; the melee's zoom blurs (0x76a550.., FUN_005e0590);
+// FUN_005d3500(3) at the 0x134 move's count 20; FUN_00451b50's rotation of the 0x121 bullet's effect.
+// The camera shakes: the melee's marker 1, 10 frames of (0.25, 0, 0.25) [BYTES 0x4e5576..0x4e5590];
+// the 0x134 move's count 20, 12 frames of (0, 0.25, 0) [BYTES 0x4e6b0b..0x4e6b29].
 #include <cmath>
 #include <cstdint>
 
@@ -608,8 +610,10 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
         }
         case 0x65:
             if (((u32(S) ^ u32(a.i(0x7c0))) & 0xffffu) == 0) {     // still in the section
-                if (e.aso_marker == 1 && (u32(a.i(0x7c0)) >> 16) == 0)
-                    a.i(0x7c0) |= 0x10000;                          // [not modelled] the camera shake (once)
+                if (e.aso_marker == 1 && (u32(a.i(0x7c0)) >> 16) == 0) {
+                    a.i(0x7c0) |= 0x10000;                          // the camera shake (once)
+                    out.shake = AiOut::Shake{10, {0.25f, 0.0f, 0.25f}};
+                }
                 break;
             }
             a.action() = 1; a.dur() = rand15(); sub = 0x66;
@@ -790,7 +794,8 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
                 A.def = a.f(0x7d8);
                 break;
             }
-            a.i(0x7c0) += 1;                                        // [not modelled] the shake at 20
+            if (a.i(0x7c0) == 0x14) out.shake = AiOut::Shake{12, {0.0f, 0.25f, 0.0f}};   // the shake at 20
+            a.i(0x7c0) += 1;
             // The zoom blur [BYTES 0x4e6b7a..0x4e6bf7]: 0.4 / -0.0075 (0x7b2488 = 1) when the count reaches 20;
             // its centre (FUN_005e0590) at origin + 2 (0x6bd580) (cos h, 0, sin h) while the count is below 50.
             if (a.i(0x7c0) == 0x14) { out.zoom_s = 0.4f; out.zoom_r = -0.0075f; }

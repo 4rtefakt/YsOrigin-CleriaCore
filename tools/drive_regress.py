@@ -1005,7 +1005,9 @@ CASES.update({
         # _KOORI — no longer bursts into effect 116 where a mode-0 shard meets the floor, so the exchange runs another
         # course); it was t9038 (dflags 9100) since FIX_SLOTS S5c and t8845 (9000) before.
         drive=_S3080.format(end=15000, cast=172) + "8920:dflags;15000:dflags;15001:quit",
-        expect=["cast 172 hp 2985/2985", "| lv 19 max 2985 atk 121 def 108 exp 5766", "[content] boss_defeated S_3080",
+        # The melee's camera shake at its marker 1 (M860 0x65: 10 frames of (0.25, 0, 0.25), 0x4e5576).
+        expect=["cast 172 hp 2985/2985", "| lv 19 max 2985 atk 121 def 108 exp 5766",
+                "[shake] t8208 #202 cast 172: 10 frames (0.25, 0.00, 0.25)", "[content] boss_defeated S_3080",
                 "133=1 156=0 174=1", ">> entering S_1000", "232=1"], absent=["[duel] lost"], count={"boss_defeated": 1}),
     # S_3080 Hugo wins against Toal (M820): 174 = 1 -> Battle_Win (its 0.4 slow-mo) -> EV_Feena02_2, where
     # FireBulletEvent fires Shion's six shots (op 0x111) -> S_1000.

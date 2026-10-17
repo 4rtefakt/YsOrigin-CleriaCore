@@ -390,6 +390,9 @@ struct AiOut {
     // (rate) — each alone keeps the other — and / or called FUN_005e0590 with a world point (the blur's centre).
     std::optional<float> zoom_s, zoom_r;
     std::optional<Vec3> zoom_centre;
+    // The camera shake: the brain wrote the counter 0x76a5ac (frames) and the amplitude 0x76a594..0x76a59c.
+    struct Shake { int frames; Vec3 amp; };
+    std::optional<Shake> shake;
     int set_own_jump = -1;       // write +0x9d6 (the own-jump byte, ASO-side) when >= 0
     int set_frame = -1;          // write +0x9b8 (the current pattern frame) when >= 0
     int fast_forward = -1;       // FUN_00446680(m) right after this tick's section request
