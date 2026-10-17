@@ -155,7 +155,8 @@ public:
     Boss04Output tick(const Boss04Input& in);     // one FUN_0052d1c0
 
     // FUN_004faf20 on part i: +0x134 += dmg; parts 1..7 lose HP here (once); the core's goes to the body.
-    void add_part_damage(int i, float dmg);
+    void add_part_damage(int i, float dmg) { add_part_damage(i, dmg, dmg); }
+    void add_part_damage(int i, float dmg, float dmg_hp);   // +0x134 += dmg, the HP -= dmg_hp (FUN_004faf20)
     bool part_hittable(int i) const;              // HP >= 1 (the hit path's gate); DEF 999 = no damage
 
     const Boss04Part& part(int i) const { return parts_[std::size_t(i)]; }

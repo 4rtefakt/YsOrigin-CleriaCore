@@ -107,7 +107,8 @@
             if (!overlap(vol, body_shape(bp.centre, bp.hurt_radius, bp.half_h, bp.shape, 0.0f))) continue;
             if (boss4_banks[std::size_t(pi)].check_and_record(0u, p.hit.rehit)) continue;
             const int dmg = fx_part_damage(bp.def, bp.resist);
-            if (dmg > 0) boss4->add_part_damage(pi, float(dmg));
+            const int dmg_hp = part_element(bp.centre, bp.broken, dmg, cls_p);
+            if (dmg > 0) boss4->add_part_damage(pi, float(dmg), float(dmg_hp));
             part_hit_feedback(bp.centre, bp.broken, dmg, cls_p);
             if (std::getenv("CLERIA_DMG"))
                 std::printf("  fx %d hits khonsclard part %d (DEF %.0f): %d dmg, part HP %.0f body %.0f\n",

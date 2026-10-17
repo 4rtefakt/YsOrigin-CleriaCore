@@ -61,7 +61,8 @@
                         mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
                         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
                         const int dmg = lua_part_damage(enemy_incoming_damage(a, atk_cls, vd, mods, [&](float pct) { return float(rng_pct(rng)) < pct; }), a, vd.def, atk_cls);   // the shell's Cheats, the Lua mods' filter
-                        if (dmg > 0) boss->add_part_damage(pi, float(dmg));
+                        const int dmg_hp = part_element(bp.pos, bp.armor, dmg, atk_cls);
+                        if (dmg > 0) boss->add_part_damage(pi, float(dmg), float(dmg_hp));
                         boss_part_feedback(bp, dmg, atk_cls);
                         if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
                         if (std::getenv("CLERIA_DMG"))

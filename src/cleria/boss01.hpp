@@ -285,7 +285,9 @@ public:
 
     // The player's swing scan landed `dmg` on part i (FUN_004faf20: part+0x134 += dmg,
     // part HP -= dmg). Consumed by the next tick (§3.3).
-    void add_part_damage(int i, float dmg);
+    void add_part_damage(int i, float dmg) { add_part_damage(i, dmg, dmg); }
+    // FUN_004faf20: +0x134 += dmg, the part HP -= dmg_hp (with the element bonus, the host's).
+    void add_part_damage(int i, float dmg, float dmg_hp);
     // FUN_004faf20's gate: the part takes hits (+0x60 & 0x80, HP > 1.0, hurt radius > 0).
     bool part_hittable(int i) const;
 

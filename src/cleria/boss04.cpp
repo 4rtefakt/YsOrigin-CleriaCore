@@ -126,10 +126,10 @@ void Boss04::bullet(int kind, int eff, const Vec3& p, const Vec3& d, std::initia
     out_->bullets.push_back(b);
 }
 
-void Boss04::add_part_damage(int i, float dmg) {
+void Boss04::add_part_damage(int i, float dmg, float dmg_hp) {
     Boss04Part& p = parts_[std::size_t(i)];
     p.dmg += dmg;
-    if (i != 0) { p.hp -= dmg; if (p.hp < 1.0f) p.hp = 0.0f; }    // the hit path (once; not the core's pool)
+    if (i != 0) { p.hp -= dmg_hp; if (p.hp < 1.0f) p.hp = 0.0f; }    // the hit path (once; not the core's pool)
 }
 
 bool Boss04::part_hittable(int i) const { return !destroyed_ && parts_[std::size_t(i)].hp >= 1.0f; }

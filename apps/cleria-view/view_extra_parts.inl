@@ -97,13 +97,15 @@ auto chain_part_hit = [&](int id, float power) {
     int dmg = 0;
     switch (b) {
     case 1: { const Boss01Part& bp = boss->part(pi); dmg = damage(bp.def, bp.resist);
-              if (dmg > 0) boss->add_part_damage(pi, float(dmg)); boss_part_feedback(bp, dmg, cls); break; }
+              const int dmg_hp = part_element(bp.pos, bp.armor, dmg, cls);
+              if (dmg > 0) boss->add_part_damage(pi, float(dmg), float(dmg_hp)); boss_part_feedback(bp, dmg, cls); break; }
     case 2: { const Boss02Part& bp = boss2->object(pi).part; dmg = damage(bp.def, bp.resist);
               if (dmg > 0) boss2->add_part_damage(pi, float(dmg)); part_hit_feedback(bp.pos, true, dmg, cls); break; }
     case 3: { const Boss03Part& bp = boss3->part(pi); dmg = damage(bp.def, bp.resist);
               if (dmg > 0) boss3->add_part_damage(pi, float(dmg)); part_hit_feedback(bp.pos, true, dmg, cls); break; }
     case 4: { const Boss04Part& bp = boss4->part(pi); dmg = damage(bp.def, bp.resist);
-              if (dmg > 0) boss4->add_part_damage(pi, float(dmg)); part_hit_feedback(bp.centre, bp.broken, dmg, cls); break; }
+              const int dmg_hp = part_element(bp.centre, bp.broken, dmg, cls);
+              if (dmg > 0) boss4->add_part_damage(pi, float(dmg), float(dmg_hp)); part_hit_feedback(bp.centre, bp.broken, dmg, cls); break; }
     case 5: { const Boss05Part& bp = boss5->part(pi); dmg = damage(bp.def, bp.resist);
               if (dmg > 0) boss5->add_part_damage(pi, float(dmg)); part_hit_feedback(bp.centre, true, dmg, cls); break; }
     case 7: boss7_hit(HitShape{}, 0u, 0, power, cls, /*swing*/false, nullptr, pi); break;
