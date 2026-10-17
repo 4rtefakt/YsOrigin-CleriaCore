@@ -2,6 +2,9 @@
 # like build.yml and packaged by tools/release/package.py, then attached to a DRAFT GitHub release that a
 # maintainer reviews and publishes by hand. No game data is ever built in or uploaded: the packages unpack
 # the player's own Ys Origin install on the first run.
+# The Windows programs are signed through SignPath (.signpath/README.md) once the repository has the
+# SIGNPATH_API_TOKEN secret and the SIGNPATH_ORGANIZATION_ID variable; without them they ship unsigned. A tag
+# is signed with the release-signing policy (each request approved in SignPath), anything else with test-signing.
 #   gh workflow run release.yml --ref <branch> -f version=0.1.0-test    (packages only, no release)
 name: release
 
@@ -10,7 +13,7 @@ on:
     tags: ['v*']
   # A pull request that changes the packaging builds the packages too (as dev-<commit>), no release.
   pull_request:
-    paths: ['.github/workflows/release.yml', 'tools/release/**', 'tools/macos_bundle.py']
+    paths: ['.github/workflows/release.yml', 'tools/release/**', 'tools/macos_bundle.py', '.signpath/**', 'res/version.rc.in']
   workflow_dispatch:
     inputs:
       version:
@@ -19,11 +22,15 @@ on:
 
 permissions:
   contents: read
+  actions: read   # the signing request reads this run's details and its artifact
 
 jobs:
   package:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    env:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+      SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
     strategy:
       fail-fast: false
       matrix:
@@ -102,6 +109,43 @@ jobs:
           ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc=size=320x160:rate=60 -t 2 -c:v mpeg4 -vtag XVID -an test_movie.avi
           ./build/cleria-movietest --file test_movie.avi movie_frame.png
 
+      # Windows: the package goes to SignPath, which signs cleria-view.exe and cleria-gamedata.exe inside it
+      # (.signpath/artifact-configuration.xml), and the signed package replaces it.
+      - name: Stage for signing
+        id: stage
+        if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN != '' && env.SIGNPATH_ORGANIZATION_ID != ''
+        shell: bash
+        run: mkdir unsigned && cp "dist/CleriaCore-$VERSION-windows-x64.zip" unsigned/CleriaCore-windows-x64.zip
+
+      - name: Upload unsigned
+        id: unsigned
+        if: steps.stage.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CleriaCore-windows-x64-unsigned
+          path: unsigned/CleriaCore-windows-x64.zip
+          if-no-files-found: error
+
+      - name: Sign
+        if: steps.stage.outcome == 'success'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: CleriaCore
+          signing-policy-slug: ${{ github.ref_type == 'tag' && 'release-signing' || 'test-signing' }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600   # a release waits for its approval in SignPath
+          output-artifact-directory: signed
+          parameters: |
+            version: ${{ toJSON(env.VERSION) }}
+
+      - name: Take the signed package
+        if: steps.stage.outcome == 'success'
+        shell: bash
+        run: cp signed/CleriaCore-windows-x64.zip "dist/CleriaCore-$VERSION-windows-x64.zip"
+
       - uses: actions/upload-artifact@v4
         with:
           name: CleriaCore-${{ matrix.name }}
@@ -124,4 +168,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" dist/CleriaCore-* --repo "$GITHUB_REPOSITORY" --draft \
-            --title "CleriaCore ${GITHUB_REF_NAME#v}" --notes "Release notes to be written before publishing."
+            --title "CleriaCore ${GITHUB_REF_NAME#v}" --notes "Release notes to be written before publishing.
+
+          [Code signing policy](https://github.com/4rtefakt/YsOrigin-CleriaCore#code-signing-policy): free code signing provided by SignPath.io, certificate by SignPath Foundation."

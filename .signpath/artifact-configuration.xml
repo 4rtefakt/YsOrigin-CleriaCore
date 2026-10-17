@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What SignPath signs in the release workflow's "CleriaCore-windows-x64-unsigned" artifact: a zip holding the
+     Windows package, CleriaCore-windows-x64.zip. Paste this as the CleriaCore project's default artifact
+     configuration in SignPath. Only CleriaCore's own two programs are signed (not SDL3, wgpu-native or the MSVC
+     runtime), and only when their version resource names the product and the version the workflow passes. -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <zip-file path="CleriaCore-windows-x64.zip">
+      <pe-file-set product-name="CleriaCore" product-version="${version}">
+        <include path="CleriaCore/cleria-view.exe" />
+        <include path="CleriaCore/cleria-gamedata.exe" />
+        <for-each>
+          <authenticode-sign />
+        </for-each>
+      </pe-file-set>
+    </zip-file>
+  </zip-file>
+</artifact-configuration>

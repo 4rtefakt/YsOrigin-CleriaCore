@@ -441,6 +441,22 @@ endif()
 # The version on the title menu (release.yml passes the tag's).
 set(CLERIA_VERSION "0.1 (dev)" CACHE STRING "Version shown by cleria-view")
 target_compile_definitions(cleria-view PRIVATE "CLERIA_VERSION=\"${CLERIA_VERSION}\"")
+# Windows: each program's version resource (res/version.rc.in), named CleriaCore with that version.
+if(WIN32)
+  set(CLERIA_RC_NUMBERS "0,0,0,0")
+  if(CLERIA_VERSION MATCHES "^([0-9]+)[.]([0-9]+)[.]([0-9]+)")
+    set(CLERIA_RC_NUMBERS "${CMAKE_MATCH_1},${CMAKE_MATCH_2},${CMAKE_MATCH_3},0")
+  endif()
+  foreach(exe_desc "cleria-view|CleriaCore, a reimplementation of the Ys Origin engine"
+                   "cleria-gamedata|CleriaCore's Ys Origin data unpacker")
+    string(REPLACE "|" ";" exe_desc "${exe_desc}")
+    list(GET exe_desc 0 exe)
+    list(GET exe_desc 1 CLERIA_RC_DESCRIPTION)
+    set(CLERIA_RC_FILE "${exe}.exe")
+    configure_file(res/version.rc.in "${CMAKE_BINARY_DIR}/${exe}-version.rc" @ONLY)
+    target_sources(${exe} PRIVATE "${CMAKE_BINARY_DIR}/${exe}-version.rc")
+  endforeach()
+endif()
 
 # Copy the runtime DLLs next to the viewer so it runs from the build dir.
 if(WIN32)
