@@ -40,8 +40,10 @@ void SDLCALL feed_cb(void* userdata, SDL_AudioStream* stream, int additional, in
 
 Audio::~Audio() {
     // Tear the device down first: after this the audio thread is gone, so the
-    // vorbis handle can be closed without racing mix().
-    if (stream_) SDL_DestroyAudioStream(as(stream_));
+    // vorbis handle can be closed without racing mix(). After SDL_Quit (cleria-view quits SDL
+    // before its Audio goes out of scope) SDL has already destroyed the stream: destroying it
+    // again freed it twice and corrupted the heap on every exit with sound on.
+    if (stream_ && SDL_WasInit(SDL_INIT_AUDIO)) SDL_DestroyAudioStream(as(stream_));
     if (bgm_) stb_vorbis_close(vb(bgm_));
     if (lock_) SDL_DestroyMutex(mx(lock_));
 }
