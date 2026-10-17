@@ -4350,6 +4350,43 @@ CASES["route_s5013_fall_yunica"] = dict(
     absent=["NOT reached"])
 
 CASES.update(aplua_regress.CASES)
+_APP = aplua_regress.P
+CASES.update({
+    # The Archipelago cases that drive with this file's routes (the mod repository's .dev/port_cases.py).
+    # Toal's story flag 289 held in Rado's Annex (aplua_toal_annex): the Shion fight's chain ends with it set: S_4104
+    # runs EV_4104_Thor (not the stopper branch), on to S_4017 and S_4021, where 232 = 1 stops S_3080 from starting
+    # the fight again; back in S_3006, 289 is back.
+    "aplua_toal_shion_chain": dict(
+        room="S_30/S_3080/S_3080", char="3", aplua={}, env=dict(_LOCK, CLERIA_LEVEL="32"),
+        drive="5:flag=289,1;" + _S3080.format(end=30000, cast=170) + "29990:lua=apflag 232;29995:lua=apflag 289;30001:quit",
+        expect=[_APP + "repair: Rado's Annex: Toal's story flag 289 held at 0", ">> entering S_4104", ">> entering S_4017",
+                ">> entering S_4021", ">> entering S_3006", _APP + "repair: Rado's Annex: Toal's story flag 289 put back",
+                _APP + "flag 0xE8 = 1", _APP + "flag 0x121 = 1"],
+        absent=["script Kadena_Stopper"]),
+    # The statue shop (mod API 5): "Increase stationary heal rate" (@Grow00, 1000 SP in vanilla) is sold at the
+    # seed's price for its location, on the row, at the wallet test and at the deduction, and the purchase is its check.
+    "aplua_shop_price": dict(
+        room="S_10/S_1009/S_1009", aplua=dict(slot_data=dict(blessing_costs={"5857332": 70})),
+        drive=CLEANSE + ";200:sp=250;220:act;290:down;300:ok;390:down;400:ok;480:ok;570:ok;650:ok;730:ok;820:esc;835:stats;840:quit",
+        expect=["[content] blessing_bought 0 for 70 SP", "check 5857332 Divine Blessing: Increase stationary heal rate"],
+        absent=["not supported: Shuffled blessing prices"]),
+    # one_per_floor: on the first floor visited only the cheapest slot is on sale. The heal rate (70) is the
+    # second cheapest here, so the same purchase is refused (the wallet test at 1000000).
+    "aplua_shop_pacing": dict(
+        room="S_10/S_1009/S_1009", aplua=dict(slot_data=dict(blessing_costs={"5857332": 70, "5857339": 60}, blessing_shop_unlock=1)),
+        drive=CLEANSE + ";200:sp=250;210:lua=apflag 152;220:act;290:down;300:ok;390:down;400:ok;480:ok;570:ok;650:ok;730:ok;"
+              "820:esc;835:stats;840:quit",
+        expect=["sp 250"], absent=["blessing_bought", "not supported: Blessing shop pacing"]),
+    # blessing_items: the same purchase is the check and nothing else; the heal rate's bit (0 of flag 217) stays
+    # unset, its effect being an item of the pool.
+    "aplua_shop_blessing_items": dict(
+        room="S_10/S_1009/S_1009", aplua=dict(slot_data=dict(blessing_items=True, blessing_costs={"5857332": 70})),
+        drive=CLEANSE + ";200:sp=250;220:act;290:down;300:ok;390:down;400:ok;480:ok;570:ok;650:ok;730:ok;820:esc;835:stats;"
+              "836:lua=apflag 217;840:quit",
+        expect=[_APP + "blessing 0 bought for 70 SP: its effect is an item of the seed",
+                "check 5857332 Divine Blessing: Increase stationary heal rate", _APP + "flag 0xD9 = 0"],
+        absent=["not supported: Blessing items"]),
+})
 # The .cleriamod install cases: a mod file on the command line (tools/modfile_regress.py, MODFILE.md).
 import modfile_regress  # noqa: E402
 CASES.update(modfile_regress.CASES)
@@ -4424,7 +4461,7 @@ def frame_edges(path, name, seams):
 # (darm_fight, ~7 minutes) does not start last and run on alone.
 LONG = ["darm_fight", "darm_onfoot", "duel_s1080_vagullion_long", "duel_s3080_toal_win", "duel_s6099_hugo", "dalles_fight",
         "duel_s3080_toal_lose", "duel_s3080_kishgal", "route_s4015", "duel_s3080_shion", "scene_light",
-        "route_s4015_yunica", "route_s4015_hugo"]
+        "route_s4015_yunica", "route_s4015_hugo", "aplua_toal_shion_chain"]
 
 
 def content_setup(case, env, tmp):
