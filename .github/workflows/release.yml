@@ -8,6 +8,9 @@ name: release
 on:
   push:
     tags: ['v*']
+  # A pull request that changes the packaging builds the packages too (as dev-<commit>), no release.
+  pull_request:
+    paths: ['.github/workflows/release.yml', 'tools/release/**', 'tools/macos_bundle.py']
   workflow_dispatch:
     inputs:
       version:
@@ -38,7 +41,8 @@ jobs:
         shell: bash
         run: |
           v="${{ inputs.version }}"
-          [ -n "$v" ] || v="${GITHUB_REF_NAME#v}"
+          [ -n "$v" ] || [ "$GITHUB_REF_TYPE" != tag ] || v="${GITHUB_REF_NAME#v}"
+          [ -n "$v" ] || v="dev-${GITHUB_SHA::7}"
           echo "VERSION=$v" >> "$GITHUB_ENV"
 
       - name: Linux packages
