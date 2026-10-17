@@ -162,6 +162,7 @@ auto boss8_pose_tail = [&](Model& m) {
 };
 // ... and the same pose for the tail's re-bake (scene.cpp poses a kept model by one clip otherwise).
 set_object_pose_hook([&](const std::string& n, Model& m) {
+    if (boss3_pose_hook(n, m)) return true;                 // Gelaldy's node overrides (view_game.inl)
     if (!boss8 || n != boss8_name[1] || boss8_sect[1].empty()) return false;
     boss8_pose_tail(m);
     return true;

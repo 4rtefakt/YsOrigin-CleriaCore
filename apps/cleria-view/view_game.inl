@@ -6210,9 +6210,11 @@ title_again:
     // the scene objects ring00..35 (their y, render + collision) and the markers atari00..35.
     // The camera writes go into the region camera's current slot, the shake into the rig's
     // shake globals (its step IS FUN_00427c90: 3 shared-RNG draws per frame while it runs).
-    // [not modelled] the node overrides (Neji / ForeArm2 / Neck4 / the Head bug: the baked model
-    // has no per-node override, so a broken forearm is not thrown away visibly),
-    // the SE stop / fade, the
+    // The node overrides (FUN_00523480 / FUN_00523670, FUN_00527b50) reach the drawn model through the big-model pose
+    // hook (boss3_pose_hook, below). [not modelled] the Head translation bug (U9) and the ForeArm2 second chain
+    // (+0xc0, U3); [approx] the override quaternions are drawn from the step that wrote them (retail's evaluation
+    // reads them the next step).
+    // The SE stop / fade, the
     // achievement, the drop (obj+0xc4), the element bonus on the arm HP (dmg_hp = dmg), the
     // lava floor (surface 13, §6.5), the S_3099_1.SOB ring set on Hard / Nightmare (FLOOR3 B8:
     // the root script's Scene_LoadStaticObjects pick is not honoured by the room load).
@@ -6221,6 +6223,15 @@ title_again:
     std::array<ef2sim::M4, boss03::kNodes> boss3_node_m{}; // the posed node frames (attach parents)
     std::array<RehitBank, boss03::kParts> boss3_banks{};   // the parts' own re-hit banks (+0x14c)
     std::array<int, boss03::kClips> boss3_sect{};          // clip id -> the mesh's section index
+    // The node records' overrides as the brain last wrote them: Neji / Neck4 +0x15c with +0x104 = 1 (they persist), and
+    // this step's ForeArm2 +0x40 (written after the evaluation, so drawn only on a step that wrote it).
+    struct Boss3Vis {
+        std::array<bool, 2> neji_on{}, forearm_on{}, forearm_gone{};
+        std::array<Boss03Quat, 2> neji{};
+        std::array<float, 2> forearm_dz{};
+        bool neck_on = false;
+        Boss03Quat neck{};
+    } boss3_vis;
     auto boss3_apply = [&](const Boss03Output& out, MeshObj* bm) {
         for (int id : out.rumble) pad_rumble(id);        // FUN_005d3500 (view_pad.inl)
         for (const Boss03ClipSet& c : out.clips) {             // FUN_005f5c80 (+ the death's hard re-set)
@@ -6372,6 +6383,7 @@ title_again:
             }
             if (const MeshObj* r0 = meshes.find(boss03::ring_name(0))) su.ring_y0 = r0->pos.y;
             boss3 = std::make_unique<Boss03>(su);
+            boss3_vis = Boss3Vis{};
             boss3_banks.fill(RehitBank{});
             hud.gauge[0] = WorldGauge{};
             boss3->bind_gauge(&hud.gauge[0]);              // the arm mini gauge 0x76c1cc..
@@ -6397,11 +6409,10 @@ title_again:
         // The posed model at this step's clip frame (FUN_005f6000), placed by the boss matrix.
         int clip = boss03::kAll;
         for (int c = 0; c < boss03::kClips; ++c) if (boss3_sect[std::size_t(c)] == bm->sect) { clip = c; break; }
-        bool posed = false;
+        mdl->rest_pose();                                  // the draw hook's overrides stay out of the brain's nodes
         if (bm->sect >= 0 && std::size_t(bm->sect) < bm->clips.size())
             for (const AnimClip& c : mdl->clips)
-                if (c.name == bm->clips[std::size_t(bm->sect)].name) { mdl->pose(c, bm->time); posed = true; break; }
-        if (!posed) mdl->rest_pose();
+                if (c.name == bm->clips[std::size_t(bm->sect)].name) { mdl->pose(c, bm->time); break; }
         const Mat4 place = boss3->matrix();
         Boss03Input in;
         for (int k = 0; k < boss03::kNodes; ++k) {
@@ -6425,6 +6436,17 @@ title_again:
         in.rng = [&] { return pick_rng.next(); };
         const Boss03Output out = boss3->tick(in);
         boss3_apply(out, bm);
+        boss3_vis.forearm_on = {false, false};
+        if (out.pose) {
+            for (std::size_t i = 0; i < 2; ++i) {
+                if (!out.pose->arm_written[i]) continue;
+                boss3_vis.neji_on[i] = true; boss3_vis.neji[i] = out.pose->neji[i];
+                boss3_vis.forearm_on[i] = true;
+                boss3_vis.forearm_gone[i] = out.pose->forearm_gone[i];
+                boss3_vis.forearm_dz[i] = out.pose->forearm_dz[i];
+            }
+            boss3_vis.neck_on = true; boss3_vis.neck = out.pose->neck;
+        }
         // The placement (obj+0x20: RotY(yaw) + the position) and the fade.
         const Mat4 wm = boss3->matrix();
         if (!bm->has_world || bm->world.m != wm.m) bm->dirty_pose = true;
@@ -6449,6 +6471,52 @@ title_again:
                         r.eye.dist, r.eye.flags, r.target.mode, r.offset.x, r.offset.y, r.offset.z, g_cam_out.eye.x,
                         g_cam_out.eye.y, g_cam_out.eye.z, g_cam_out.target.x, g_cam_out.target.y, g_cam_out.target.z);
         }
+    };
+    // The drawn pose of boss03 (the big-model hook, set in view_boss08.inl): its clip at the mesh's cursor, then the
+    // node records' overrides as FUN_005f6490 / FUN_005f6390 apply them [BYTES 0x5f68de..0x5f692e]: a node's sampled
+    // rotation q becomes q x Slerp(identity, +0x15c, +0x104) (D3DXQuaternionMultiply: q first), and ForeArm2's local
+    // +0x40 is the brain's T(0, 0, rest z + dz), or T(0, -5000, 5000) for a broken arm (thrown away with its hand).
+    auto boss3_pose_hook = [&](const std::string& n, Model& m) -> bool {
+        if (!boss3 || n != "boss03") return false;
+        const MeshObj* o = meshes.find("boss03");
+        if (o && o->sect >= 0 && std::size_t(o->sect) < o->clips.size())
+            for (const AnimClip& c : m.clips) if (c.name == o->clips[std::size_t(o->sect)].name) { m.pose(c, o->time); break; }
+        auto node = [&](int k) -> Node* {
+            const int ni = boss3_node[std::size_t(k)];
+            return ni >= 0 && std::size_t(ni) < m.nodes.size() ? &m.nodes[std::size_t(ni)] : nullptr;
+        };
+        auto rotate = [](Node& nd, const Boss03Quat& q) {           // local = S R (R_q) T, row vectors
+            const float x = q.x, y = q.y, z = q.z, w = q.w;
+            Mat4 r;
+            r.m = {1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w), 0,
+                   2 * (x * y - z * w), 1 - 2 * (x * x + z * z), 2 * (y * z + x * w), 0,
+                   2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y), 0,
+                   0, 0, 0, 1};
+            Mat4 l = nd.local;
+            const float tx = l.m[12], ty = l.m[13], tz = l.m[14];
+            l.m[12] = l.m[13] = l.m[14] = 0.0f;
+            l = l * r;
+            l.m[12] = tx; l.m[13] = ty; l.m[14] = tz;
+            nd.local = l;
+        };
+        constexpr int kNeji[2] = {boss03::kNRightNeji, boss03::kNLeftNeji};
+        constexpr int kFore[2] = {boss03::kNRightForeArm2, boss03::kNLeftForeArm2};
+        for (std::size_t i = 0; i < 2; ++i) {
+            if (boss3_vis.neji_on[i])
+                if (Node* nd = node(kNeji[i])) rotate(*nd, boss3_vis.neji[i]);
+            if (boss3_vis.forearm_on[i])
+                if (Node* nd = node(kFore[i])) {
+                    const float z = nd->local.m[14];
+                    Mat4 t;
+                    if (boss3_vis.forearm_gone[i]) { t.m[13] = -5000.0f; t.m[14] = 5000.0f; }
+                    else t.m[14] = z + boss3_vis.forearm_dz[i];
+                    nd->local = t;
+                }
+        }
+        if (boss3_vis.neck_on)
+            if (Node* nd = node(boss03::kNNeck4)) rotate(*nd, boss3_vis.neck);
+        m.update_worlds();
+        return true;
     };
     // FUN_0042dc90: a point inside one of the room's exit volumes — the .SEN records with a destination; the
     // .SEV event boxes are another list here, as the engine skips them (KEEPOUT_BOXES.md §1, §2).
