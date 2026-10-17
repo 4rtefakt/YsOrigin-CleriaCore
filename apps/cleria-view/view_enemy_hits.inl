@@ -15,7 +15,8 @@
             // The player's death, whatever the cause (a hit, lava, drowning): FUN_0046f810.
             // With g_flags[133] (a losable duel) the fight ends instead of the game: 156 = 0,
             // 130 = 0 (174 stays 0, the scripts' "lost" branch), the boss gauge hidden, HP 1,
-            // i-frames 9999. [not modelled] the stat recompute and the motion fields it zeroes.
+            // i-frames 9999, the motion fields zeroed — the velocity, the displacement and the script force
+            // +0x5d0..+0x5dc [EXPORT 0046f810.c:14-33] — and the stats recomputed (FUN_00420c40, on demand here).
             // Otherwise the player is dead: the death count and the game over (death_t above).
             // FUN_004fe9e0 L31-34: a hit needs the victim's +0x60 & 0x80 AND its Untouchable byte
             // (+0x9d7, ASO funcid 28) clear — the player's skill sections set it.
@@ -25,14 +26,16 @@
             auto player_death = [&] {
                 if (duel::losable_death(game.g_flags, player.hp, player_iframes)) {   // src/cleria/duel.hpp
                     hud.hide_boss_gauge();
-                    player_kb = {}; pvel = {};               // +0x32c/+0x334/+0xa3c/+0xa44/+0x5d0.. zeroed
+                    player_kb = {}; pvel = {};               // +0x32c/+0x334/+0xa3c/+0xa44 zeroed
+                    csHost.pforce = {};                      // +0x5d0 / +0x5d4 / +0x5d8 / +0x5dc
                     content_duel_lost();                     // mods: this 156 = 0 is not a BossDefeated (view_content.inl)
                     std::printf("  [duel] lost: flag 133 set, HP 1, 156 / 130 cleared (FUN_0046f810)\n");
                     return;
                 }
                 if (death_t == 0) {                          // +0x3fc 0 -> 1: the first dead step
                     death_t = 1;
-                    player_kb = {}; pvel = {};               // +0x32c/+0x334/+0xa3c/+0xa44/+0x5d0.. zeroed
+                    player_kb = {}; pvel = {};               // +0x32c/+0x334/+0xa3c/+0xa44 zeroed
+                    csHost.pforce = {};                      // +0x5d0 / +0x5d4 / +0x5d8 / +0x5dc
                     // [H] the death section 5 (the hit reaction's state for a lethal hit); for lava /
                     // drowning the setter is not traced.
                     avm.set_section(5, /*force*/true);
