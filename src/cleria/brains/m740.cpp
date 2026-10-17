@@ -8,7 +8,8 @@
 // status 57, from the ASO); otherwise (or failing that) the same odds force section 8, whose Marker 1 fires a fan of
 // 5 (7 on d >= 1) kind-7 weaving bubbles of EF2 491 at the player, 0.4 rad apart. Each attack flips a coin into
 // +0x79c (1 = wait for the cooldown R%90 - 30d + 120, rolled every tick of section 7).
-// [not modelled] the player status bits 3 / 4 / 5 of the needles.
+// The needles' status 57 (poison, heavy, confuse, curse: bits 0 / 3 / 4 / 5) reaches the player through the effect's
+// hit particles and the view's ailment roll (view_ailments.inl, STATUS_AILMENTS.md).
 #include <algorithm>
 #include <cmath>
 
