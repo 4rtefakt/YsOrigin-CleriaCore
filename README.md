@@ -89,10 +89,18 @@ press, a hold, always or never.
 
 ## 🧩 Mods
 
-- **Install**: double-click a `.cleriamod` file, or use **F1 > Mods > Install a mod file...**. Restart
-  CleriaCore to load it.
+<p align="center"><img src="docs/images/mods.jpg" alt="F1 > Mods > Get mods, the list of mods to install with one click" width="720"></p>
+
+- **Get mods**: press **Mods** on the launcher (or **F1 > Mods**), then **Get mods**. Pick a mod and it is
+  downloaded, installed and turned on; restart CleriaCore to play with it. Achievements, New Game+, a solo
+  randomizer, Archipelago and more are a click away, on Windows, Linux and macOS alike.
+- **Updates**: CleriaCore checks your mods for new versions when you open the Mods tab. A mod with an update
+  shows its new version in gold; **Update** takes it, keeping your settings and the mod on or off as it was.
+- **Install a file**: double-click a `.cleriamod` file, drop it on the CleriaCore window, or use
+  **F1 > Mods > Install a mod file...**.
 - **Manage**: **F1 > Mods** lists your mods. Turn each on or off, move it up or down (lower in the list wins
-  when two mods change the same thing), and open its page for its own settings.
+  when two mods change the same thing), open its page for its own settings, or remove it (it goes to the
+  Recycle Bin or the Trash).
 - **Make your own**: [samples/mods/README.md](samples/mods/README.md) is the guide, with four sample mods
   from a simple reskin to the full Archipelago client.
 
