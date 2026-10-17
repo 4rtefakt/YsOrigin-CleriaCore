@@ -66,7 +66,7 @@ Origin, so the download stays small.
 
 | System | Package | What to do |
 |---|---|---|
-| 🪟 **Windows 10/11** (64-bit) | `CleriaCore-<version>-windows-x64.zip` | Unzip anywhere and run `cleria-view.exe`. Windows may warn about an unrecognized app the first time: click **More info**, then **Run anyway**. |
+| 🪟 **Windows 10/11** (64-bit) | `CleriaCore-<version>-windows-x64.zip` | Unzip anywhere and run `cleria-view.exe`. Windows may warn about an unrecognized app the first time (it is not signed yet, see the [code signing policy](#code-signing-policy)): click **More info**, then **Run anyway**. |
 | 🐧 **Linux and Steam Deck** (x86-64) | `CleriaCore-<version>-linux-x64.tar.gz` | Extract it and run `./cleria-view`. Works on any distribution from 2022 on. On the Steam Deck, add it to Steam as a non-Steam game to play in Game Mode. |
 | 🍎 **macOS 11 or later** (Apple Silicon) | `CleriaCore-<version>-macos-arm64.zip` | Unzip and drag **CleriaCore** to Applications. The first time, macOS blocks it: open **System Settings > Privacy & Security** and click **Open Anyway**. |
 
@@ -146,6 +146,36 @@ stand-ins are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
   [Dear ImGui](https://github.com/ocornut/imgui), [Lua](https://www.lua.org),
   [miniz](https://github.com/richgel999/miniz), [stb_vorbis](https://github.com/nothings/stb) and
   [FFmpeg](https://ffmpeg.org).
+
+<a id="privacy"></a>
+
+## 🔒 Privacy
+
+CleriaCore collects nothing about you and sends nothing about you anywhere. The only connections it makes on its
+own are to GitHub, to read public files: when you open the **Mods** tab it checks your installed mods for newer
+versions, and its **Get mods** page reads the list of mods and downloads the ones you choose. GitHub sees those
+requests as it sees any visit to its site
+([GitHub's privacy statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement)).
+Your saves, settings and logs stay on your computer. A mod that connects to a server, such as an Archipelago
+multiworld, does so only to the server you give it.
+
+<a id="code-signing-policy"></a>
+
+## ✍️ Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
+[SignPath Foundation](https://signpath.org/).
+
+- Only CleriaCore's own Windows programs (`cleria-view.exe`, `cleria-gamedata.exe`) are signed, built by this
+  repository's [release workflow](.github/workflows/release.yml) on GitHub's own runners from the tagged
+  source. No binary built anywhere else is signed, and the bundled libraries keep their own signatures or none.
+- Committers and reviewers: the members of this repository with write access, today
+  [@4rtefakt](https://github.com/4rtefakt). A change proposed by anyone else is reviewed by a committer before
+  it is merged.
+- Approvers: [@4rtefakt](https://github.com/4rtefakt) approves each release's signing request in SignPath.
+
+Signing starts with the first release after SignPath Foundation accepts the project; releases before that
+are not signed.
 
 ## 📜 License
 

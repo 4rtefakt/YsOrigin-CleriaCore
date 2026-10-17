@@ -1,0 +1,27 @@
+// @CLERIA_RC_FILE@'s version resource (CMakeLists.txt, configure_file): the product name and version that
+// Windows shows in the file's properties and that code signing checks (.signpath/artifact-configuration.xml).
+#include <winver.h>
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION @CLERIA_RC_NUMBERS@
+PRODUCTVERSION @CLERIA_RC_NUMBERS@
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "FileDescription", "@CLERIA_RC_DESCRIPTION@"
+            VALUE "ProductName", "CleriaCore"
+            VALUE "FileVersion", "@CLERIA_VERSION@"
+            VALUE "ProductVersion", "@CLERIA_VERSION@"
+            VALUE "OriginalFilename", "@CLERIA_RC_FILE@"
+            VALUE "LegalCopyright", "GPL-3.0-or-later"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
