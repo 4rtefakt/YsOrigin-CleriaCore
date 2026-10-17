@@ -36,8 +36,8 @@ CASES = {
     # Receiving, a save between two grants, a load of that save: no double grant (ap_items_save).
     "aplua_items_save": dict(
         room="S_10/S_1001/S_1001", aplua={},
-        drive="60:lua=apsay !give Celcetan Panacea;100:lua=apflag 0x59;120:csave=2;130:lua=apsay !give Celcetan Panacea;"
-              "170:lua=apflag 0x59;200:cload=2;260:lua=apflag 0x59;265:lua=apstate;270:quit",
+        drive="120:lua=apsay !give Celcetan Panacea;300:lua=apflag 0x59;320:csave=2;330:lua=apsay !give Celcetan Panacea;"
+              "510:lua=apflag 0x59;540:cload=2;720:lua=apflag 0x59;725:lua=apstate;730:quit",
         expect=["Celcetan Panacea: g_flags[0x59] -1 -> 1 (from Clicker)", P + "flag 0x59 = 1", "sidecar yso_02.cleria written",
                 "Celcetan Panacea: g_flags[0x59] 1 -> 2 (from Clicker)", P + "flag 0x59 = 2", "event load",
                 P + "loaded save: seed CLERIATEST applied 3", "Celcetan Panacea: g_flags[0x59] 1 -> 2 (from Clicker)",
