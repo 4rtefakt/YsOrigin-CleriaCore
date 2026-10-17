@@ -57,7 +57,7 @@ Script=main.lua       ; the entry file, relative to the mod folder
   spent, the budget hook runs on every instruction and raises again, and the mod is disabled when the call
   returns.
 - **Heap cap** [H]: 96 MB per mod (Lua's own allocator; "out of memory" is an ordinary error).
-- **Files** [H]: a file read or written by a mod is at most 16 MB; at most 4 websockets per mod.
+- **Files** [H]: a file read or written by a mod is at most 16 MB; at most 4 websockets per mod (a closed one does not count).
 - [not modelled] a pathological string pattern (`string.find` backtracking) runs inside C and is not
   interrupted by the budget; a mod that does this freezes the game until it finishes.
 - Lua is built as C++, so a Lua error is a C++ exception that unwinds the API's own C++ frames (no `longjmp`
@@ -496,6 +496,8 @@ ws:send(cleria.json.encode({cmd = "Hello", tags = cleria.json.array()}))
 - The socket offers permessage-deflate and inflates what the server compresses (Archipelago's MultiServer
   warns clients without it). Windows: its own framing over winsock and SChannel (TLS 1.2), WinHTTP after a TLS
   failure; Linux / macOS: the same framing over a libcurl connection. A mod sees text messages either way.
+- A mod may keep 4 websockets that are not closed. A closed one (refused, dropped by the server, or `close`d)
+  frees its place at once, so a reconnect loop may drop it and make a new one; opened again, it takes a place back.
 - `cleria.json.encode(v [, {indent = n}])`, `cleria.json.decode(s) -> v | nil, err` (src/cleria/json: int64
   exact, NaN accepted). JSON `null` is `cleria.json.null`; decoded arrays keep an array mark, so they re-encode
   as arrays; `cleria.json.array(t)` marks a table (an empty table is otherwise an object); integer keys become
