@@ -5,7 +5,7 @@ description: Dump decompiled C + disassembly of specific yso_win.exe functions/a
 
 # Ghidra headless decompile dump (Ys Origin `yso_win.exe`)
 
-The reverse-engineering in `build/*_re/` comes from a Ghidra project. When a needed function isn't in an
+The reverse-engineering notes (now in the yso repository, `notes/`; see `build/README.md`) come from a Ghidra project. When a needed function isn't in an
 existing `*_out.txt`, dump it yourself — the project is already analyzed, so this is fast (~30–90s).
 
 ## Setup (already exists on this machine)

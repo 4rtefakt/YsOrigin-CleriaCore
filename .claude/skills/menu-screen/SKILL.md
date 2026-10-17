@@ -6,7 +6,7 @@ description: Implement or pixel-match a CleriaCore menu/UI screen (title, char-s
 # CleriaCore menu-screen implementation
 
 All menu drawing lives in `apps/cleria-view/main.cpp` in `struct TitleFx` (+ `MenuFont`, `draw_screen_image`).
-The single source of truth for values is `build/menu_re/MENU_IMPLEMENTATION.md` — read it first, and update it after.
+The single source of truth for values is yso's `notes/menu/MENU_IMPLEMENTATION.md` (`../yso` beside this checkout; the RE notes moved there, `build/README.md`) — read it first, and update it after.
 Reference grabs are gitignored in `reference/*.png` (real-game screenshots = ground truth). **Never guess an
 asset — extract the real DDS and confirm** (the user has repeatedly insisted on this).
 
