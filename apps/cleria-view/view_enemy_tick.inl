@@ -410,6 +410,12 @@
                         g_notes.seen[std::size_t(en->cast_id)] = 1;
                     if (o.zoom_s || o.zoom_r) zoom_blur(o.zoom_s.value_or(zb.s), o.zoom_r.value_or(zb.r));   // ZoomBlur
                     if (o.zoom_centre) zoom_centre(*o.zoom_centre);                                         // FUN_005e0590
+                    if (o.shake) {                                  // 0x76a5ac / 0x76a594..0x76a59c
+                        g_rig.set_shake_frames(o.shake->frames);
+                        g_rig.set_shake_amp(o.shake->amp);
+                        std::printf("  [shake] t%llu #%d cast %d: %d frames (%.2f, %.2f, %.2f)\n", (unsigned long long)tick_count,
+                                    en->instance_id, en->cast_id, o.shake->frames, o.shake->amp.x, o.shake->amp.y, o.shake->amp.z);
+                    }
                     // M470's hold (0x48ce69): the player's origin at the mouth, +0x330 = 0, +0x398 = 1 until a brain
                     // tick of that Levenueba passes without it (its release, its death, a room change).
                     // [not modelled] FUN_00459ff0's floor / facing writes.

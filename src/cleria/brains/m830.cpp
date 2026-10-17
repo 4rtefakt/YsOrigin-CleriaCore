@@ -13,8 +13,8 @@
 // When its HP falls below 1 with the player alive the handler (m830_dead) restores HP to
 // 1, clears flags 156 and 130 (which ends the duel's Wait_FlagEqualInt(156, 0)), hides the
 // gauge and asks for section 5.
-// [not modelled] +0x64 / +0x4be / +0x3c0 writes; the
-// slam's camera shake (0x76a5ac = 12, 0x76a598 = 0.25); the player-dead helper's forced
+// The slam's camera shake: 12 frames, amplitude (0, 0.25, 0) [BYTES 0x4e8e99..0x4e8eb7].
+// [not modelled] +0x64 / +0x4be / +0x3c0 writes; the player-dead helper's forced
 // section 5 -> 2.
 #include <cmath>
 #include <cstdint>
@@ -289,7 +289,8 @@ void body(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, Actor& A, AiOut& o
                 if (m == 1) {
                     if (byte_at(a, 0x8a4) != 0) break;
                     set_byte(a, 0x8a4, 1);
-                    a.action() = 1;                                 // [not modelled] the camera shake
+                    a.action() = 1;
+                    out.shake = AiOut::Shake{12, {0.0f, 0.25f, 0.0f}};    // 0x76a5ac / 0x76a594..
                     push1(A, a.heading + 0.0f, fd * 0.1f + 0.22f);  // FUN_0047aa00
                 }
                 if (m == 2 && byte_at(a, 0x8a4) != 0 && byte_at(a, 0x7c0) != 0) {
