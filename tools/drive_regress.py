@@ -1310,6 +1310,12 @@ CASES.update({
         room="S_10/S_1008/S_1008", env={"CLERIA_SPEC": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:near=#189,1.4;21:atk;40:near=#189,1.4;41:atk;80:quit",
         expect=["[spec] t43 #189 specular f2f200", "[spec] t44 #189 specular e5e500"]),
+    # The sword's wall clank (FUN_00500b30 -> FUN_00589390, GOXX_PARTICLES.md §3.8): Yunica walks into S_1002's east
+    # wall and swings; while the locus frame is in its [4], [5] window, two sparks a tick off the wall (6 draws).
+    "wall_clank": dict(
+        room="S_10/S_1002/S_1002", env={"CLERIA_DUST": "1"},
+        drive="10:move=1,0,150;170:atk;240:quit",
+        expect=["clank: 2 sparks at (2.99,", "6 draws"]),
     # build/mech_re/GOXX_PARTICLES.md §3.3 - §3.5 (FUN_0058a5f0 / FUN_0058a900, the blood splats; the decals are kept,
     # simulated and drawn). A hit a monster survives: three splats in its colour on its next tick (18 draws); the
     # kill: three more at the death (18), before the debris; each debris piece leaves a drop where it bounces (4
