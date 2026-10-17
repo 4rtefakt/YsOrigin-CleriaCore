@@ -555,13 +555,17 @@ int main(int argc, char** argv) {
     url_tests();
     proto_tests();
     loopback_tests();
-#ifdef _WIN32   // the own framing (off Windows libcurl's WebSocket has no compression)
-    WSADATA wd;
-    WSAStartup(MAKEWORD(2, 2), &wd);
-    deflate_loopback(1, "deflate: greeting, echo, 2 MB and a ping, all compressed (one stream)");
-    deflate_loopback(2, "deflate: the same with server_no_context_takeover");
-    WSACleanup();
+    if (WebSocket::supported()) {
+#ifdef _WIN32
+        WSADATA wd;
+        WSAStartup(MAKEWORD(2, 2), &wd);
 #endif
+        deflate_loopback(1, "deflate: greeting, echo, 2 MB and a ping, all compressed (one stream)");
+        deflate_loopback(2, "deflate: the same with server_no_context_takeover");
+#ifdef _WIN32
+        WSACleanup();
+#endif
+    }
     std::printf("[net] %s (%d failure%s)\n", fails ? "FAILED" : "all passed", fails, fails == 1 ? "" : "s");
     return fails ? 1 : 0;
 }

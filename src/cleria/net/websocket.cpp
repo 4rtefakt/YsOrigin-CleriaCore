@@ -1,11 +1,13 @@
-// WebSocket client — see websocket.hpp. Windows: its own framing with permessage-deflate (ws_proto) over winsock and
-// SChannel, WinHTTP when that cannot connect. Off Windows: libcurl (CLERIA_CURL, websocket_curl.inl) or a stub whose
-// open() reports "unsupported on this platform".
+// WebSocket client — see websocket.hpp. Its own framing with permessage-deflate (ws_proto, WebSocket::framed) over a
+// TCP / TLS stream: winsock and SChannel on Windows (WinHTTP's WebSocket after a TLS failure), libcurl elsewhere
+// (CLERIA_CURL, websocket_curl.inl); without either, a stub whose open() reports "unsupported on this platform".
 #include "cleria/net/websocket.hpp"
 #include "cleria/net/ws_proto.hpp"
 
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
+#include <random>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -22,8 +24,6 @@
 #include <schannel.h>
 #include <security.h>
 #include <sspi.h>
-#include <cstdlib>
-#include <random>
 #elif defined(CLERIA_CURL)
 #include <curl/curl.h>
 #include <poll.h>
@@ -173,7 +173,7 @@ struct WebSocket::Conn {
     }
 };
 #elif defined(CLERIA_CURL)
-#include "websocket_curl.inl"   // WebSocket::supported, WebSocket::Conn, WebSocket::worker over libcurl
+#include "websocket_curl.inl"   // WebSocket::supported, Stream and WebSocket::Conn over libcurl
 #endif
 
 #if defined(_WIN32) || defined(CLERIA_CURL)
@@ -263,7 +263,7 @@ void WebSocket::stop_and_join() {
 }
 #endif
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(CLERIA_CURL)
 // ---- the framed connection (permessage-deflate) ------------------------------------------------
 
 // Connects to `u` with the own framing. False (with `why`) when no WebSocket was opened; true once it was, after
@@ -356,6 +356,32 @@ bool WebSocket::framed(Conn& c, const WsUrl& u, std::string* why, std::string* c
     return true;
 }
 
+#endif
+
+#if defined(CLERIA_CURL) && !defined(_WIN32)
+// ---- the worker (libcurl) ---------------------------------------------------------------------
+
+void WebSocket::worker(std::shared_ptr<Conn> cp, std::vector<WsUrl> urls) {
+    Conn& c = *cp;
+    std::string failures, close_reason;
+    bool opened = false;
+    for (std::size_t ui = 0; ui < urls.size() && !c.stop && !opened; ++ui) {
+        std::string why;
+        if (framed(c, urls[ui], &why, &close_reason)) opened = true;
+        else failures += (failures.empty() ? "" : "; ") + urls[ui].str() + ": " + why;
+    }
+    if (!opened) close_reason = c.stop ? "closed" : "could not connect: " + failures;
+    state_ = State::Closed;
+    {
+        std::lock_guard<std::mutex> l(c.dmu);
+        c.done = true;
+    }
+    c.dcv.notify_all();
+    push({Event::Kind::Closed, close_reason, !c.by_user.load()});
+}
+#endif
+
+#ifdef _WIN32
 // ---- the worker ----------------------------------------------------------------------------
 
 void WebSocket::worker(std::shared_ptr<Conn> cp, std::vector<WsUrl> urls) {
