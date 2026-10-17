@@ -274,6 +274,28 @@ int main(int argc, char** argv) {
         check(has(h.logs, "printed via the mod log"), "sandbox: print goes to the mod's log");
     }
 
+    // ---- 1b. a host without network (Limits::network = false): cleria.net reaches nothing ----
+    {
+        script::Limits off;
+        off.network = false;
+        auto m = make(h, tmp, "offline", R"LUA(
+            local r = {}
+            local ok, why = cleria.net.websocket():open("ws://127.0.0.1:38281")
+            r.ws = ok == false and why == "no network here"
+            r.udp = cleria.net.udp():send("127.0.0.1", 9, "x") == false
+            r.listen = cleria.net.tcp():listen(0) == false
+            local t = cleria.net.tcp()
+            t:connect("127.0.0.1", 9)
+            r.tcp = #t:poll() == 0
+            cleria.net.http({url = "http://127.0.0.1:9/"}, function() HTTP_CALLED = true end)
+            for k, v in pairs(r) do if not v then error("offline check failed: " .. k) end end
+            cleria.log("offline ok")
+        )LUA", {}, off);
+        m->run_http();
+        check(m->ok() && has(h.logs, "offline ok"), "offline: websocket open, udp send, tcp listen answer false; tcp connect does nothing");
+        check(m->http_jobs_.empty(), "offline: http starts no request");
+    }
+
     // ---- 2. a runaway loop, a heap bomb, an error: only that mod stops ----
     {
         script::Limits lim;
@@ -1095,6 +1117,16 @@ int main(int argc, char** argv) {
                   h.ops7[1].rfind("api7q bgm_file [", 0) == 0 && ends(h.ops7[1], "song.ogg]") && h.ops7[2] == "api7q new_game 2 3" &&
                   h.ops7[3] == "api7q new_game" && has(h.logs, "files truetruefalsetruetrue bad falsetruefalse card function"),
                   "api 7: audio.play / music(file), game.new_game, save.card (" + q->error() + ")");
+        }
+        {   // API 7: game.skip_cutscenes asks the host with this mod's id, on and off
+            h.ops7.clear();
+            auto k = make(h, tmp, "api7k", R"LUA(
+                cleria.log("skip " .. tostring(cleria.game.skip_cutscenes(true)) .. tostring(cleria.game.skip_cutscenes(false)) ..
+                           tostring(cleria.script.stop()))
+            )LUA");
+            check(k->ok() && h.ops7.size() == 3 && h.ops7[0] == "api7k skip_cutscenes 1" && h.ops7[1] == "api7k skip_cutscenes 0" &&
+                  h.ops7[2] == "api7k script_stop" && has(h.logs, "skip truetruetrue"),
+                  "api 7: game.skip_cutscenes, script.stop (" + k->error() + ")");
         }
         {   // API 7: the tools reach the host (a command of any mod, their names, the log's tail, a reload asked for)
             auto t = make(h, tmp, "api7t", R"LUA(

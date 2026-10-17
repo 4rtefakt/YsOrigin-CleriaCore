@@ -13,7 +13,13 @@ static int g_drive_esc_hold = 0;               // CLERIA_DRIVE `eschold=N`: tick
 static int g_drive_cxl_hold = 0;               // CLERIA_DRIVE `cxlhold=N`: ticks of the Cancel binding (slot 1)
 
 static access::Settings& acc() { return settings().s.access; }
-static access::SkipMode skip_mode() { return access::SkipMode(std::clamp(acc().cutscene_skip, 0, 4)); }
+// cleria.game.skip_cutscenes(true): the mods asking for every cutscene and movie to skip as "Always" does (the Archipelago
+// mod's random start skips the New Game intro). The player's own mode is back once none asks.
+static std::set<std::string> g_skip_mods;
+static access::SkipMode skip_mode() {
+    if (!g_skip_mods.empty()) return access::SkipMode::Always;
+    return access::SkipMode(std::clamp(acc().cutscene_skip, 0, 4));
+}
 
 // One logic tick, before the mapper step: the drive's held Esc, and the assists that live in
 // engine objects (the camera rig's shake scale).

@@ -40,6 +40,10 @@ struct Limits {
     std::size_t memory = 96u << 20;                 // [H] the Lua heap of one mod
     int websockets = 4;                             // [H] sockets open at once per mod
     std::size_t file_bytes = 16u << 20;             // [H] largest file a mod reads / writes
+    // false: cleria.net reaches nothing, for a host that only shows the mods' pages (CleriaOre's manager, outside
+    // the game): websocket open, udp bind / send and tcp listen answer false, "no network here"; tcp connect and
+    // http do nothing (no "open", no callback).
+    bool network = true;
 };
 
 // cleria.combat.add_filter (API 6, LUA_API.md §5.2): one number of the player's progression, combat or pickups
@@ -168,7 +172,8 @@ struct Host {
     virtual bool set_clipboard(const std::string& text) { (void)text; return false; }
     virtual bool open_url(const std::string& mod, const std::string& url) { (void)mod; (void)url; return false; }
     virtual std::string locale() { return "en"; }               // the game's text language: "en", "fr", "ja" ...
-    // What the game is doing: "title", "play", "cutscene", "dialog", "menu", "book", "panel", "gameover".
+    // What the game is doing: "title", "play", "cutscene", "dialog", "menu", "book", "map", "panel",
+    // "gameover".
     virtual std::string game_state() { return in_game() ? "play" : "title"; }
     virtual std::string room_title() { return {}; }             // the room's own name ("2F Path 1"), "" when it has none
     // cleria.world: the room's monsters (living enemy actors; never the player, an NPC or a boss module's parts).

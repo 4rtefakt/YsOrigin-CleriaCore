@@ -12,6 +12,7 @@ The mod folder holds `mod.ini` and a cases file: `tests/cases.py` or `.dev/cases
                      absent=["error"],                     # lines that must not appear
                      settings="Key=1",                     # lines for the mod's section of cleria.ini
                      char="2", env={...},                  # CLERIA_CHAR and more environment
+                     server=start,                         # a mock server: start() -> (process, env, settings lines)
                      drive2="...",                         # a second boot on the same saves and settings
                      shots={"title": 60},                  # a `shot` command's tick -> <cases folder>/shots/<name>.png
                      check=lambda out: None or "why"),     # the case's own check of the whole output
@@ -58,13 +59,29 @@ def run(name, case, mod, exe, assets, shots_dir, show):
         env = dict(os.environ, CLERIA_MUTE="1", CLERIA_CHAR=case.get("char", "1"), CLERIA_DRIVE=case["drive"],
                    CLERIA_SAVE_DIR=tmp, CLERIA_SHOT_DIR=tmp, CLERIA_INI=os.path.join(settings, "yso_win.ini"))
         env.update(case.get("env", {}))
+        if os.name != "nt" and sys.platform != "darwin" and not (env.get("DISPLAY") or env.get("WAYLAND_DISPLAY")):
+            env.setdefault("SDL_VIDEO_DRIVER", "offscreen")      # no desktop (Linux over ssh), as drive_regress does
+        srv =case["server"]() if case.get("server") else None   # (its process, env additions, settings lines)
+        if srv:
+            env.update(srv[1])
+            with open(os.path.join(settings, "cleria.ini"), "a") as f:
+                f.write(srv[2] + "\n")
         sob = os.path.join(assets, "MAP", case["room"] + ".SOB")
-        r = subprocess.run([exe, assets, sob], env=env, capture_output=True, text=True, errors="replace", timeout=900)
-        out = r.stdout + r.stderr
-        if "drive2" in case:
-            r = subprocess.run([exe, assets, sob], env=dict(env, CLERIA_DRIVE=case["drive2"]), capture_output=True,
-                               text=True, errors="replace", timeout=900)
-            out += "\n==== second boot\n" + r.stdout + r.stderr
+        out = ""
+        try:
+            r = subprocess.run([exe, assets, sob], env=env, capture_output=True, text=True, errors="replace", timeout=900)
+            out = r.stdout + r.stderr
+            if "drive2" in case:
+                r = subprocess.run([exe, assets, sob], env=dict(env, CLERIA_DRIVE=case["drive2"]), capture_output=True,
+                                   text=True, errors="replace", timeout=900)
+                out += "\n==== second boot\n" + r.stdout + r.stderr
+        finally:
+            if srv:                                              # its log follows the game's output, for `expect`
+                srv[0].terminate()
+                try:
+                    out += "\n==== server\n" + (srv[0].communicate(timeout=10)[0] or "")
+                except Exception:
+                    pass
         for shot, tick in case.get("shots", {}).items():
             p = os.path.join(tmp, "t%d.ppm" % tick)
             if os.path.exists(p):
