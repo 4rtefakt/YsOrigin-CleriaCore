@@ -147,8 +147,8 @@ AiOut m530(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
             if (h1) hit = true;
             const bool h2 = e.world->ray({e.self.x + c * R, A->floor_y + 1.0f + 0.0f, e.self.z + s * R}, {0, -2.0f, 0}).hit;
             if (!h2 || h1) {
-                a.f(0x7cc) -= std::cos(t + 0.261799f);
-                a.f(0x7d0) -= std::sin(t + 0.261799f);
+                a.f(0x7cc) -= std::cos(t + 0.26179919f);
+                a.f(0x7d0) -= std::sin(t + 0.26179919f);
             }
         }
     }

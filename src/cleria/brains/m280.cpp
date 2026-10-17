@@ -44,7 +44,7 @@ AiOut m280(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     const int d = difficulty(e);
     const int bb5c = e.diff_index;                                 // DAT_0076bb5c, read raw
     if (r15(e) % 1000u < 5u) {                                     // 0.5%: re-roll the turn rate (RAW)
-        a.f(0x814) = (unit(e.rng()) * 0.3f + 0.85f) * a.f(0x7ac);  // 0x6bd278 / 0x6bd3bc
+        a.f(0x814) = (unit(e.rng()) * 0.29999995f + 0.85f) * a.f(0x7ac);  // 0x6bd278 / 0x6bd3bc
     }
     if (a.i(0x7c0) != 0) a.i(0x7c0) -= 1;
     switch (a.phase()) {
