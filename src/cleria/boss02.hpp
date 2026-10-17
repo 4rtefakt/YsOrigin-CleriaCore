@@ -365,7 +365,8 @@ public:
     // FUN_004faf20(1, 0) on a mesh: HP -= dmg (the host computed it with def() / resist).
     void add_damage(int o, float dmg);
     // FUN_004faf20 on the kind-9 part of the head / tail: part +0x134 += dmg, part HP -= dmg.
-    void add_part_damage(int o, float dmg);
+    void add_part_damage(int o, float dmg) { add_part_damage(o, dmg, dmg); }
+    void add_part_damage(int o, float dmg, float dmg_hp);   // +0x134 += dmg, the part's HP -= dmg_hp (the element bonus)
     bool part_hittable(int o) const;
     // The mesh path's gate: (obj+0x298 & 0x88) == 8, not frozen, alive (+0x60 & 0x80).
     bool mesh_hittable(int o) const;

@@ -1816,10 +1816,10 @@ bool Boss02::accept_hit(int o, const Vec3& contact, std::uint32_t now_ms, Boss02
 
 void Boss02::add_damage(int o, float dmg) { obj_[std::size_t(o)].hp -= dmg; }
 
-void Boss02::add_part_damage(int o, float dmg) {
+void Boss02::add_part_damage(int o, float dmg, float dmg_hp) {
     Boss02Part& pt = obj_[std::size_t(o)].part;
     pt.dmg += dmg;
-    pt.hp -= dmg;
+    pt.hp -= dmg_hp;
 }
 
 bool Boss02::part_hittable(int o) const {

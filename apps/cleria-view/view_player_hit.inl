@@ -138,8 +138,10 @@
                         if (boss2_part_banks[std::size_t(k)].check_and_record(player_hit_serial, atk_hb.rehit)) continue;
                         if (atk_hb.one_shot) atk_window = 0;
                         const int dmg = b2_damage(pt.def, pt.resist);
-                        if (dmg > 0) boss2->add_part_damage(o, float(dmg));
-                        part_hit_feedback(pt.pos, true, dmg, atk_cls);
+                        // +0x138 = 0: the head's and the tail's hurt part come from FUN_005a1a10({1, idx, 0.85, 0, 0, obj}).
+                        const int dmg_hp = part_element(pt.pos, false, dmg, atk_cls);
+                        if (dmg > 0) boss2->add_part_damage(o, float(dmg), float(dmg_hp));
+                        part_hit_feedback(pt.pos, false, dmg, atk_cls);
                         if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
                         if (std::getenv("CLERIA_DMG"))
                             std::printf("  hit %s part (DEF %.0f): %d dmg, part HP %.0f pool %.0f\n",

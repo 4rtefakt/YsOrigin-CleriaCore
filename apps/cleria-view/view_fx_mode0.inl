@@ -63,8 +63,9 @@
             if (!overlap(vol, body_shape(pt.pos, pt.radius, 0.0f, 0, 0.0f))) continue;
             if (boss2_part_banks[std::size_t(k)].check_and_record(0u, p.hit.rehit)) continue;
             const int dmg = fx_part_damage(pt.def, pt.resist);
-            if (dmg > 0) boss2->add_part_damage(o, float(dmg));
-            part_hit_feedback(pt.pos, true, dmg, cls_p);
+            const int dmg_hp = part_element(pt.pos, false, dmg, cls_p);   // +0x138 = 0 (view_player_hit.inl)
+            if (dmg > 0) boss2->add_part_damage(o, float(dmg), float(dmg_hp));
+            part_hit_feedback(pt.pos, false, dmg, cls_p);
             if (std::getenv("CLERIA_DMG"))
                 std::printf("  fx %d hits %s part (DEF %.0f): %d dmg, part HP %.0f pool %.0f\n", p.fx ? p.fx->id : -1,
                             boss02::object_name(o), pt.def, dmg, pt.hp, boss2->pool());
@@ -123,8 +124,9 @@
             if (!overlap(vol, body_shape(bp.centre, bp.radius, 0.0f, 0, 0.0f))) continue;
             if (boss5_banks[std::size_t(pi)].check_and_record(0u, p.hit.rehit)) continue;
             const int dmg = fx_part_damage(bp.def, bp.resist);
-            if (dmg > 0) boss5->add_part_damage(pi, float(dmg));
-            part_hit_feedback(bp.centre, true, dmg, cls_p);
+            const int dmg_hp = part_element(bp.centre, pi >= 2, dmg, cls_p);   // +0x138 = (i >= 2) (view_boss05_hit.inl)
+            if (dmg > 0) boss5->add_part_damage(pi, float(dmg), float(dmg_hp));
+            part_hit_feedback(bp.centre, pi >= 2, dmg, cls_p);
             if (std::getenv("CLERIA_DMG"))
                 std::printf("  fx %d hits pictimos part %d (DEF %.0f): %d dmg, body %.0f\n", p.fx ? p.fx->id : -1, pi,
                             bp.def, dmg, boss5->hp());

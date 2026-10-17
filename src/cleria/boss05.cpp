@@ -128,10 +128,10 @@ void Boss05::bullet(int kind, int eff, const Vec3& p, const Vec3& d, std::initia
 }
 static float ibits(int i) { float f; std::memcpy(&f, &i, 4); return f; }
 
-void Boss05::add_part_damage(int i, float dmg) {
+void Boss05::add_part_damage(int i, float dmg, float dmg_hp) {
     Boss05Part& p = parts_[std::size_t(i)];
     p.dmg += dmg;
-    p.hp -= dmg;
+    p.hp -= dmg_hp;
 }
 bool Boss05::part_hittable(int i) const {
     const Boss05Part& p = parts_[std::size_t(i)];
