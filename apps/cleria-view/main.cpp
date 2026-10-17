@@ -224,11 +224,17 @@ struct Player {
     std::uint32_t ail_mask = 0;        // the status mask 0x76c15c (ailments.hpp): the HUD's four lines
 };
 
+// The development checkout's fallback paths; a player package (CLERIA_RELEASE) looks only beside the exe.
+#ifdef CLERIA_RELEASE
+static const fs::path kDevRoot;
+#else
+static const fs::path kDevRoot = "C:/Users/kores/repos/YsOrigin-CleriaCore";
+#endif
+
 // Locate a bundled resource next to the exe, or in the repo res/ dir.
 static fs::path res_file(const std::string& name) {
     std::error_code ec;
-    for (const fs::path& c : {exe_dir() / name, exe_dir() / ".." / ".." / "res" / name,
-                              fs::path("C:/Users/kores/repos/YsOrigin-CleriaCore/res") / name})
+    for (const fs::path& c : {exe_dir() / name, exe_dir() / ".." / ".." / "res" / name, kDevRoot / "res" / name})
         if (fs::exists(c, ec)) return c;
     return exe_dir() / name;
 }
@@ -598,10 +604,9 @@ static fs::path default_assets(const char* argv0) {
         if (fs::exists(fs::path(e) / "MAP", ec)) return e;
     if (fs::path d = gamedata::ready_data_dir(); !d.empty()) return d;
     const fs::path exedir = fs::absolute(fs::path(argv0), ec).parent_path();
-    for (const fs::path& c : {exedir / ".." / ".." / "assets", exedir / "assets",
-                              fs::path("C:/Users/kores/repos/YsOrigin-CleriaCore/assets")})
+    for (const fs::path& c : {exedir / ".." / ".." / "assets", exedir / "assets", kDevRoot / "assets"})
         if (fs::exists(c / "MAP", ec)) return fs::weakly_canonical(c, ec);
-    return "C:/Users/kores/repos/YsOrigin-CleriaCore/assets";
+    return kDevRoot.empty() ? fs::path() : kDevRoot / "assets";
 }
 
 #ifdef _WIN32
