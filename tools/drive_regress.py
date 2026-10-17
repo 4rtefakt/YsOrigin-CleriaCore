@@ -166,6 +166,12 @@ CASES = {
         drive="20:esctap;70:right;80:right;90:right;120:ok;160:up;200:up;230:ok;260:left;290:ok;400:quit",
         expect=["[book] Return to Title", "[game] Return to Title: back to the title",
                 "[title] t60 fader 0.00 list 1 book 0"]),
+    # The powered Evil Ring held without the Blue Necklace (FUN_00462550, KEY_ITEMS.md §3.6): -9999 HP with the
+    # purple 9999 and effect 0x20a attached to the player (mode 2) [BYTES 0x46298d..0x462bd8].
+    "evil_ring_death": dict(
+        room="S_10/S_1002/S_1002",
+        drive="5:held=94;6:flag=93,1;8:fxall;40:quit",
+        expect=["[popup] 9999 a000a0", "[death] HP 0", "[fxall] id 522 attach 2"]),
     # FUN_004106e0 [BYTES 0x41071f..0x410779]: no pause book during a boss fight (flag 156 = DAT_0076bb8c): Esc does
     # nothing and the player walks on.
     "book_boss_gate": dict(
