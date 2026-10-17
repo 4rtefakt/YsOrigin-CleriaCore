@@ -700,9 +700,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (id == cur_bgm) return;
         cur_bgm = id;
         if (id == 0) {
-            // [approx] Bgm_Play(0) re-queues a 3.5 s fade on a track a Bgm_Stop(ms) is already
-            // fading; the earlier, shorter stop still lands first. Keep that fade instead of a cut.
-            if (!audio.bgm_fading()) audio.stop_bgm();
+            // Bgm_Play(0): the 3.5 s fade (FUN_005cde10(0xdac), BGM.md §7.4). [approx] on a track a Bgm_Stop(ms) is
+            // already fading it re-queues that fade; the earlier, shorter stop still lands first, so keep it.
+            if (!audio.bgm_fading()) audio.fade_out_bgm(3500);
         } else {
             bgm_start(id);
         }
@@ -4560,11 +4560,17 @@ title_again:
         clip_near = n; clip_far = f;
         std::printf("  [scene] clip planes %.1f / %.1f (op 0xa2)\n", n, f);
     };
+    // Bgm_Play(id) = FUN_00432ee0 [BYTES 0x432f11]: the playing stream is faded over 3500 ms (FUN_005cde10(0xdac)) and,
+    // for an id, the file opened by FUN_005cde80. The same file re-opens in the same slot, cancelling that slot's
+    // queued fade: a restart from the top (BGM.md §7.4). [approx] another file plays in the other slot while the old
+    // one fades; here it cuts. Bgm_Play(0) is the fade alone; a shorter Bgm_Stop fade already running is kept (as
+    // apply_bgm).
     csHost.bgm_play_fn = [&](int id) {
         if (id == -1) id = default_bgm;
-        if (bgm_trace && id != cur_bgm) std::printf("  [bgm] %d (script)\n", std::max(id, 0));
-        if (id <= 0) { audio.stop_bgm(); cur_bgm = 0; return; }
-        if (id == cur_bgm) return;
+        if (bgm_trace && (id != cur_bgm || id > 0))
+            std::printf("  [bgm] %d (script%s)\n", std::max(id, 0), id == cur_bgm ? ": restart" : "");
+        if (id <= 0) { if (!audio.bgm_fading()) audio.fade_out_bgm(3500); cur_bgm = 0; return; }
+        if (id == cur_bgm) audio.stop_bgm();
         cur_bgm = id;
         bgm_start(id);
     };
@@ -5738,8 +5744,9 @@ title_again:
     // ---- Velagunder, boss01 (src/cleria/boss01, build/boss_re/VELAGUNDER.md) ----------------
     // The GoMesh "boss01" a room script Mesh_Locate'd is driven by the Boss01 brain every live
     // step (the mesh pool runs under a Fix too): the clip advance, then the brain (FUN_00562990
-    // switch +0x28d case 5), then its requests (view_boss01.inl). [not modelled] the boss01_hit1/2
-    // solid meshes, the mesh-contact damage (§3.4).
+    // switch +0x28d case 5), then its requests (view_boss01.inl), and the placement of its two solid
+    // meshes boss01_hit1/2 (§2.3).
+    static const char* const boss01_hit_name[2] = {"boss01_hit1", "boss01_hit2"};
     std::array<int, boss01::kBones> boss_node{};
     // The attach frames (FUN_00451c20 parents) of the boss's effects: the 24 posed bones, Bone(114),
     // the blk+0x1a0 Bone(115) copy, the laser beam blk+0x140 and part 0; refreshed every boss tick.
@@ -5835,6 +5842,18 @@ title_again:
             boss_n114 = node_of("Bone(114)");
             boss_n115 = node_of("Bone(115)");
             boss_banks.assign(boss01::kParts, RehitBank{});
+            // The ctor's two collision GoMeshes boss01_hit1/2 (§2.3) [EXPORT 00505810.c:276-316]: FUN_00501a30 with
+            // the boss's position; their "stopper" hulls make the trunk solid. Not named "boss01", so their type byte
+            // is the model's (1), and the laser's ray and the beam's particles do not skip them.
+            for (int i = 0; i < 2; ++i)
+                if (!meshes.find(boss01_hit_name[i])) {
+                    ObjLocateArgs a;
+                    a.ymo = std::string("data\\enemy\\boss01\\") + boss01_hit_name[i] + ".ymo";
+                    a.name = boss01_hit_name[i];
+                    a.x = bm->pos.x; a.y = bm->pos.y; a.z = bm->pos.z;
+                    live_obj.located.push_back(a);
+                    live_obj_dirty = true;
+                }
             std::printf("  [boss] Velagunder: HP %.0f STR %.0f DEF %.0f lv %d\n",
                         boss->max_hp(), boss->str(), boss->def(), boss->level());
         }
@@ -5931,6 +5950,30 @@ title_again:
         bm->pos = boss->pos();
         bm->rot = {0.0f, boss->yaw(), 0.0f};
         bm->dirty_pose = true;
+        // boss01_hit1/2 follow the boss every tick at obj x T(0, 0, -1.75 / -3.0) [EXPORT 005062d0.c:686-713] (a destroyed
+        // brain no longer runs, and writes no matrix).
+        for (int i = 0; i < 2; ++i)
+            if (MeshObj* hm = meshes.find(boss01_hit_name[i])) {
+                const Mat4& w = out.hit_mesh[std::size_t(i)];
+                if (!boss->destroyed() && (!hm->has_world || hm->world.m != w.m)) {
+                    hm->has_world = true; hm->world = w;
+                    hm->pos = hm->dest = {w.m[12], w.m[13], w.m[14]}; hm->speed = 0;
+                    hm->dirty_pose = true;
+                }
+                if (boss_log && tick_count % 300 == 0)
+                    if (const RoomMesh::ObjRange* hr = phys_mesh(room).object_range(boss01_hit_name[i])) {
+                        const RoomMesh& cm = phys_mesh(room);
+                        Vec3 lo{3.4e38f, 3.4e38f, 3.4e38f}, hi{-3.4e38f, -3.4e38f, -3.4e38f};
+                        for (std::uint32_t k = hr->v0; k < hr->v1 && k < cm.vertices.size(); ++k) {
+                            const RoomVertex& v = cm.vertices[k];
+                            lo = {std::min(lo.x, v.px), std::min(lo.y, v.py), std::min(lo.z, v.pz)};
+                            hi = {std::max(hi.x, v.px), std::max(hi.y, v.py), std::max(hi.z, v.pz)};
+                        }
+                        std::printf("  [boss] t%llu %s hull %u tris (%.2f,%.2f,%.2f)..(%.2f,%.2f,%.2f)%s\n",
+                                    (unsigned long long)tick_count, boss01_hit_name[i], hr->t1 - hr->t0, lo.x, lo.y, lo.z,
+                                    hi.x, hi.y, hi.z, hm->no_collide ? " off" : "");
+                    }
+            }
         for (const Boss01Sound& sd : out.sounds) {
             if (sd.kind == Boss01Sound::k3D) sfx_at(sd.id, sd.pos, kSfxAnimVol);
             else if (sd.kind == Boss01Sound::k2D) audio.play(sd.id, kSfxAnimVol);
@@ -5952,7 +5995,12 @@ title_again:
         for (const auto& [fi, fv] : out.flags) if (fi >= 0 && fi < 0x200) game.g_flags[fi] = fv;
         if (out.clear_buffs) { set_high_flag(544, 0); set_high_flag(545, 0); set_high_flag(546, 0); }   // §8.2
         if (out.award_exp) award_exp(boss->exp_b0(), boss->level(), /*boss*/true, false, 0);
-        if (out.destroy) { bm->alpha = bm->alpha_target = 0.0f; }
+        if (out.destroy) {                                 // the boss and boss01_hit1/2: +0x11 |= 2, gone with their collision
+            bm->alpha = bm->alpha_target = 0.0f;
+            bm->no_collide = true;
+            for (int i = 0; i < 2; ++i)
+                if (MeshObj* hm = meshes.find(boss01_hit_name[i])) { hm->no_collide = true; hm->dirty_pose = true; }
+        }
         if (out.gauge) {                                   // §6: the HP2 bar, 306 px, strip 1
             hud.set_boss_gauge(-5, out.gauge->hp, out.gauge->max, out.gauge->len_scale, out.gauge->strip);
             gauge_owner = 0;
@@ -7485,6 +7533,19 @@ title_again:
             // frame 0) and settles to idle on arrival, as the generic mover's table does. The run
             // stage (+0x4ca, a RunOrWalk'd MoveTo) plays the run section 1 [H-high: the table].
             const Actor* wp = world.player();
+            // A pinned player (Chr_Pattern) a script walks: her mover FUN_00465170 still asks for the locomotion table's
+            // section (0x69bd0c: idle 2, walk 0, run 1) when the current one is below 3 or 0x10a and differs
+            // [EXPORT 00465170.c:404-443, 1931-1945]; FUN_00446550 drops the pin on any request (issue #102). So the
+            // MoveTo's walk releases her, as the puppets' mover does, and an idle pin holds.
+            if (wp && wp->pattern.pinned() && wp->anim_motion < 0 && grounded) {
+                const int want = csHost.p_moving ? (csHost.p_running() ? 1 : 0) : 2;
+                const int sec = avm.section();
+                if ((sec < 3 || sec == 0x10a) && sec != want) {
+                    avm.set_section(want, /*force*/true);
+                    std::printf("  [pin] t%llu player released by the mover's section %d request (was %d)\n",
+                                (unsigned long long)tick_count, want, sec);
+                }
+            }
             if (!(wp && wp->pattern.pinned())) {
                 if (wp && wp->anim_motion >= 0) {
                     if (p_motion_applied != wp->anim_motion) {

@@ -319,24 +319,31 @@ CASES = {
         room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="15", CLERIA_BOSSLOG="1", CLERIA_DMG="1"),
         drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
               + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 2541, 12))
-              + "2620:at3=2.5,13,33,0;2625:pos;2800:pos;2900:quit",
+              + "2640:at3=6,13,33,0;2645:pos;2800:pos;2900:quit",
         # Re-pinned 2026-10-10, twice. The dust puffs (20 draws at every hit the player takes move Velagunder's
         # stream) put the stun 25 ticks later and the placement at t2641; with the blood splats (18 more draws at each
         # of those hits) the stun is where it was before both, and so are the placement (t2620) and the two stands.
         # Re-pinned 2026-10-17 (the wall clank's sparks and the boss parts' hit spark / elemental effect: their draws of the shared xorshift): the same stun and taunt; the hull is posed a
         # little differently under her feet (y 11.828 at t2625, 10.484 at t2800).
-        expect=["stun 0 STUNNED", "state 0 sub 1", "t2620 at3=2.5,13,33,0", "feet (3.643, 11.828, 33.000)",
-                "state 8 sub 1", "clip ACTION_01", "feet (4.910, 10.484, 32.095)", "state 8 sub 1"]),
+        # Re-pinned 2026-10-18 (boss01_hit1/2, the ctor's two "stopper" GoMeshes, now make his trunk solid: VELAGUNDER.md
+        # §2.3): the old spot (2.5, 13, 33) is inside boss01_hit2, so she was pushed off it and fell to the floor. She
+        # is put on the hull beside that block, (6, 13, 33), and 20 ticks later: the stun ends between t2610 and t2640 now
+        # (hit1's front face, z 28.8, holds her back on the floor, so the pilot's swings land at other times).
+        expect=["stun 0 STUNNED", "t2640 at3=6,13,33,0", "state 0 sub 1", "feet (5.914, 8.948, 32.931)",
+                "state 8 sub 1", "clip ACTION_01", "feet (5.409, 9.968, 32.255)", "state 8 sub 1"]),
     # ... and the kill (Lv 60): the death timeline's end block sets flag 220 and awards the EXP, which releases
     # BATTLE_0.XSO into SENTOUGO.XSO (the stairs rise: stepup_se).
     # The swings into his body also clank (FUN_00500ac0: SE 0x5d on a boss mesh, `CLERIA_DUST` logs it).
+    # The death's end block (FUN_005093e0, +0x244) destroys the boss and boss01_hit1/2 with their collision: the two
+    # blocks' hulls are off ("off": collapsed to a point) on the next log (2026-10-18).
     "velagunder_kill": dict(
-        room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="60", CLERIA_DUST="1"),
+        room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="60", CLERIA_DUST="1", CLERIA_BOSSLOG="1"),
         drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
               + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3000, 12)) + "3000:at=0,22,180;3500:scripts;"
               + "".join(f"{t}:ok;" for t in range(3540, 3701, 40)) + "3740:scripts;3750:quit",
         expect=["clank SE 0x5d on boss01", "flag 220 = 1", "EXP 86 (lv 8)", "[content] boss_defeated S_1099 flag 220",
-                "script sentougo", "script stepup_se"],
+                "boss01_hit1 hull 84 tris (0.00,10.42,30.08)..(0.00,10.42,30.08) off",
+                "boss01_hit2 hull 59 tris (0.00,11.66,32.33)..(0.00,11.66,32.33) off", "script sentougo", "script stepup_se"],
         count={"boss_defeated": 1}),
     # Hugo against Velagunder (VELAGUNDER.md §3.1 / §3.3, EFFECTHIT.md §5.1). His intro S_EVT1099_2 has more pages
     # than Yunica's: the `ok` presses run to t2200 (with the cases' 1800 above a page stays open, the world stays
@@ -382,9 +389,25 @@ CASES = {
         # again. The same route to the same places within 0.04; the two hits on the core are 11 and 11.
         # Re-pinned 2026-10-17 (the wall clank's sparks and the boss parts' hit spark / elemental effect: their draws of the shared xorshift): the floor spot at t2429 is (-0.324, 2.000, 27.213); the
         # walk, the stand on the shoulder and the two 11-damage hits on the core are unchanged.
-        expect=["[boss] Velagunder: HP 875 STR 63 DEF 54 lv 8", "feet (-0.324, 2.000, 27.213)", "stun 0 STUNNED",
-                "goto ends at (-6.72,4.96,28.36)", "goto ends at (-2.16,10.53,32.79)", "feet (-2.198, 10.527, 32.687)",
+        # Re-pinned 2026-10-18 (boss01_hit1/2 make his trunk solid, VELAGUNDER.md §2.3): on the floor she stands against
+        # hit1's front face (z 28.8), (-0.457, 2.000, 27.248) at t2429; the walk up the hand and the arm is unchanged, but
+        # the spot on the shoulder (-2.0, 32.8) is inside boss01_hit2's block, so that `goto` stops at its face,
+        # (-2.813, 10.494, 32.704). From there the two 11-damage hits on the core still land.
+        expect=["[boss] Velagunder: HP 875 STR 63 DEF 54 lv 8", "feet (-0.457, 2.000, 27.248)", "stun 0 STUNNED",
+                "goto ends at (-6.72,4.96,28.36)", "feet (-2.813, 10.494, 32.704)",
                 "hit boss part 0 (DEF 54): 11 dmg, HP 875", "hit boss part 0 (DEF 54): 11 dmg, HP 864"]),
+    # Velagunder's two collision GoMeshes (VELAGUNDER.md §2.3, EXPORT 00505810.c:276-316 / 005062d0.c:686-713): the ctor
+    # makes boss01_hit1 / boss01_hit2 (BOSS01_HIT1/2.YMO, material "stopper": not drawn) and the brain places them at
+    # obj x T(0, 0, -1.75) / T(0, 0, -3.0) every tick. hit2 is a block over his trunk up to y 26.3: put above it, she
+    # stands on its top (before, she fell through him to the floor at y 2).
+    "velagunder_hit_meshes": dict(
+        room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="15", CLERIA_BOSSLOG="1"),
+        drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
+              + "1900:at3=0,30,35,0;1902:pos;1903:floor;1960:pos;1961:quit",
+        expect=["[boss] t300 boss01_hit1 hull 84 tris (-3.18,-0.91,28.81)..(3.18,10.42,38.38)",
+                "[boss] t300 boss01_hit2 hull 59 tris (-4.10,6.34,31.52)..(4.10,26.30,38.45)",
+                "t1900 at3=0,30,35,0", "feet (0.000, 26.097, 35.280)", "floor 'boss01_hit2' nojump 0",
+                "feet (0.000, 26.099, 35.280)"]),
     # Toal's fire skill from the ground (d05cfa5: the player's VM honours anime_Jump in 0x10e / 0x111): section
     # 0x10e lifts him off the floor (y 2 -> 4.368 at t74) and he lands again.
     "toal_ignis_hop": dict(
@@ -3493,7 +3516,9 @@ CASES.update({
                 # Re-pinned 2026-10-17 (the wall clank's sparks and the boss parts' hit spark / elemental effect: their draws of the shared xorshift): the bite at t3833, the mouth at (0.487, 0.316).
                 # Re-pinned 2026-10-17 again (#182: the RUN parts' contacts are FUN_004fe1a0, a knock-down with one unused
                 # draw and no HP, and the frustum scale): the bite at t3893, the mouth at (0.489, 0.317).
-                "ZoomBlur(0.3800, -0.0012)", "ZoomBlur(0.4000, -0.0200)", "draw strength 0.3800 alpha 97 taps 3 centre (0.489, 0.317)"]),
+                # Re-pinned 2026-10-18 (boss01_hit1/2 make his trunk solid: the pilot stands elsewhere on the floor, so
+                # the fight runs another course): the bite at t3878, the mouth at (0.527, 0.317).
+                "ZoomBlur(0.3800, -0.0012)", "ZoomBlur(0.4000, -0.0200)", "draw strength 0.3800 alpha 97 taps 3 centre (0.527, 0.317)"]),
     # The boss hit flash (§3.2, FUN_00504140): the stun part's damage sets obj+0x2a0 = 1.65, the brain's tail decays
     # it once (1.575) before the draw, whose additive colour is (107, 55, 19) / 255 x 0.5 x (1.575 - 0.65).
     # (t2040, was t2034: since e44f09f the first hit on the re-bound hull lands 6 ticks later; the values are the same.)
