@@ -219,10 +219,6 @@ class Weather {
     void sparks(int count, int delay_step, int life_range, float width, const Vec3& pos, float speed0, float speed1,
                 float vy0, float vy1, float ang0, float ang1);
     int live_sparks() const { return sparks_; }      // 0x75ae6c
-    // FUN_00589390 (GOXX_PARTICLES.md §3.8; the sword's wall clank): two sparks from `pos` along `dir` turned by up
-    // to `spread` radians, 3 draws each (life 35 + 0..30, the turn's direction index, the speed in speed0..speed1);
-    // the velocity is handed to FUN_00588450 whole (its dword 7), then the same ten pre-rolled quarter-steps.
-    void clank_sparks(const Vec3& pos, const Vec3& dir, float spread, float speed0, float speed1, float width);
     // FUN_0058a5f0 (GOXX_PARTICLES.md §3.3 [BYTES 0x58a5f0..0x58a8fd]): `count` blood splats / slime puddles on
     // the floor around `pos`. 6 draws per splat (variant, life, the offset's distance and direction, the turn,
     // the size), taken whether or not there is a floor within 5 below; in a water room FUN_0058a210's drifting

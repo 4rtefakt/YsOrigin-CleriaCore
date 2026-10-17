@@ -232,36 +232,6 @@ void Weather::sparks(int count, int delay_step, int life_range, float width, con
     }
 }
 
-void Weather::clank_sparks(const Vec3& pos, const Vec3& dir, float spread, float speed0, float speed1, float width) {
-    const int i = int(spread * 40.743664f);                                   // 0x6bda38
-    const float sx = 0.0f - cos_table((i - 0x40) & 0xff), cy = 1.0f - cos_table(i & 0xff);
-    const float chord = std::sqrt(sx * sx + cy * cy);                          // FUN_0041f570
-    for (std::uint8_t delay = 0; delay < 2; ++delay) {
-        Obj* o = alloc(Obj::Streak);
-        if (!o) return;
-        Spark& s = o->sp;
-        s.life = float((rng() >> 1) % 0x1fu) + 35.0f;                         // 0x6bda10
-        const int j = int(rng() >> 24);
-        const float cj = cos_table(j), sj = cos_table((j - 0x40) & 0xff), k = sj * chord;
-        Vec3 v{cj * chord + dir.x, sj * k + dir.y, cj * k + dir.z};
-        const float l = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-        v = l == 0.0f ? Vec3{} : Vec3{v.x * (1.0f / l), v.y * (1.0f / l), v.z * (1.0f / l)};
-        const float speed = (speed1 - speed0) * (unit12(rng()) - 1.0f) + speed0;
-        ++sparks_;
-        s.delay = delay;
-        s.pos = pos;
-        s.vel = {v.x * speed, v.y * speed, v.z * speed};
-        s.half = width * 0.4f;                                                 // 0x6bd2d4
-        for (Vec3& h : s.hist) h = pos;
-        for (int q = 0; q < 10; ++q) {
-            spark_collide(s);
-            s.pos = {s.pos.x + s.vel.x * 0.25f, s.pos.y + s.vel.y * 0.25f, s.pos.z + s.vel.z * 0.25f};   // 0x6bd244
-            s.vel.y -= 0.0075f;                                                // 0x6bd064
-        }
-        s.prev = s.pos;
-    }
-}
-
 // FUN_0045e390 [BYTES 0x45e390..0x45e459]: a random offset — the distance, then the direction (the top byte).
 void Weather::offset(float lo, float hi, float* dx, float* dz) {
     const float r = (hi - lo) * (unit12(rng()) - 1.0f) + lo;
