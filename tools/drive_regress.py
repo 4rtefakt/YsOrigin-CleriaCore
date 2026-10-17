@@ -1532,11 +1532,14 @@ CASES.update({
     # Damage dealt 8 the fight has every event again, in the same order: band 5 from t3390, the kill at t4730 (was
     # t2890 at 10), destroyed at t5069 — hence the longer run. The knock-down counter is caught by the 30-tick status
     # line at 11 (was at 1): "down 11 ".
+    # Re-pinned 2026-10-17 (#174: the room's animated models of update kind 1 / 3 play their section 0 from the
+    # load): the fight differs from t840 on and has every event, later: the kill at t6453 (was t4930 on master),
+    # destroyed at t6792, so the run ends at t7400 (was 5400).
     "khonsclard_fight": dict(
         room="S_40/S_4099/S_4099",
         env={"CLERIA_BOSSLOG": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=8;20:at=-2.8,23.3,0;"
-              "40:every=20,700,ok;720:every=40,5400,boss4;728:every=40,5400,atk;5400:quit",
+              "40:every=20,700,ok;720:every=40,7400,boss4;728:every=40,7400,atk;7400:quit",
         expect=["[boss04] Khonsclard: body 3000, pods 600", "clip START fr", "f156 1", "states 00", "down 11 ",
                 "band 2", "band 5", "flag 223 = 1", "EXP 328", "destroyed"]),
     # The world-anchored mini gauges (build/mech_re/MINI_GAUGE.md; the shared store 0x76c1cc.., worldgauge.hpp): a hit
