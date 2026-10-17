@@ -112,6 +112,7 @@ float Boss05::U1() {
 void Boss05::set_state(int k) {                                    // FUN_0052d980
     d4_ = 0; d0_ = k; c0_ = 1; b4_ = 0;
     out_->anim_speed = 1.0f;
+    freeze_clip_ = false;                                          // byte obj+0x28f = 0
     out_->sections.push_back(k);
     sec_ = k; count_ = 0;                                          // FUN_005f5c80 zeroes A+0x1c
 }
@@ -589,11 +590,13 @@ void Boss05::case_jump() {                                         // §C.3
     }
     if (b4_ == 55) out_->sounds.push_back(274);
     if (b4_ >= 38 && b4_ <= 299) {
+        if (b4_ > 55) freeze_clip_ = true;                         // byte obj+0x28f = 1 [0x532681]
         yaw_ = rotate_toward(yaw_, tgt_yaw_, delta_ * 0.1f);
         pos_.x += (tgt_.x - pos_.x) * 0.04f;
         pos_.z += (tgt_.z - pos_.z) * 0.04f;
         pos_.y += vy_ * 0.5f;
         vy_ -= 0.05f;
+        if (vy_ < -1.4f) freeze_clip_ = false;                     // 0x6be070
         if (vy_ < -2.0f) {                                         // the landing
             out_->rumble.push_back(1); out_->sounds.push_back(191);
             shake(20, {0, 0.6f, 0});
@@ -766,6 +769,7 @@ void Boss05::death() {
         out_->sounds.push_back(576);
     }
     if (b4_ == 20) shake(190, {0.2f, 0.2f, 0});
+    if (b4_ == 200 && !r291) freeze_clip_ = true;                  // byte obj+0x28f = 1 [0x534917]
     if (b4_ >= 3 && b4_ <= 199 && b4_ % 60 == 0) out_->rumble.push_back(5);
     if (b4_ == 290) out_->sounds.push_back(188);
     if (b4_ == 340 && !r291) {

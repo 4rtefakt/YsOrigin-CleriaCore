@@ -28,6 +28,7 @@ std::array<RehitBank, boss05::kParts> boss5_banks{};
 std::unordered_map<int, std::uint32_t> boss5_dead_t;       // a summon's dead ticks (+0x3fc) by instance id
 auto boss5_apply = [&](const Boss05Output& out, MeshObj* bm) {
     if (out.light_dir) csHost.light_dir = *out.light_dir;   // 0x76a564..
+    bm->frozen = boss5->clip_frozen();                     // obj+0x28f: the next step's clip advance is skipped
     if (out.light_col) csHost.light_rgb = *out.light_col;   // 0x76a570..
     for (int id : out.rumble) pad_rumble(id);
     for (int s : out.sections)
