@@ -14,7 +14,7 @@
 // Wait_FlagEqualInt(156, 0)).
 // [not modelled] the 231 = 1 rematch mode beyond its stats and HP link (the clone summons, the
 // joint attack 0x44c.., the death swap, the aura); the lunge's after-images, its d > 0 bullets
-// 0x12e and its Marker(298) slash effects; the guard's aura;
+// 0x12e and its Marker(298) slash effects;
 // the handler's knock cap in the attack sections;
 // the dead path's player i-frames (9999) and double-KO revive.
 #include <algorithm>
@@ -543,7 +543,15 @@ AiOut m850(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                 return f231 ? int(r15(e) % 45u) - 20 * d + 70 : int(r15(e) % 90u) - 40 * d + 150;
             };
             if (sec == 6) {
-                // [not modelled] every 45 ticks (+0x87c % 45 == 1): the attached guard effect.
+                // Every 45 ticks (+0x87c % 45 == 1) the guard effect: the ASO marker's id, FUN_00450410 at the
+                // origin (power -7, knock 10, rtype 2), then FUN_00451c20 mode 1 at (0, 0, -1) [BYTES 0x4d0439..0x4d0547].
+                if (std::uint32_t(a.i(0x87c)) % 45u == 1u) {
+                    AiEffect fx;
+                    fx.id = e.aso_marker; fx.pos = {e.self.x, e.self.y, e.self.z - 1.0f};
+                    fx.attach = true; fx.attach_full = true;
+                    fx.power = -7.0f; fx.knock = 10.0f; fx.rtype = 2;
+                    out.effects.push_back(fx);
+                }
                 float t;
                 if (e.was_hit && !e.took_damage) {                 // +0x3bc & 6 == 4: a blocked hit
                     a.i(0x878) += 1; a.f(0x7b8) = 30.0f; t = 30.0f;
