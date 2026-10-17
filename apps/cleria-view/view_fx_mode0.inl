@@ -132,6 +132,7 @@
     // Dalles's parts (+0x27c sub-parts; DALLES_AB.md §B.2, view_boss07.inl): the element barriers are broken by the
     // skills' particles as by their swings — the particle's own class, power and re-hit, token 0.
     if (boss7_hit(vol, 0u, p.hit.rehit, p.hit.power, cls_p, /*swing*/false, nullptr)) landed = true;
-    // Darm's nine parts (DARM_D.md §4.3, view_boss08.inl): the same path.
+    // Darm's nine parts (DARM_D.md §4.3, view_boss08.inl): the same path. [not modelled] their hit spark.
+    part_atk = nullptr;
     if (boss8_hit(vol, 0u, p.hit.rehit, p.hit.power, cls_p, /*swing*/false, nullptr)) landed = true;
 }

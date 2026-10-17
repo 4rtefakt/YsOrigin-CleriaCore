@@ -19,6 +19,7 @@
                         // and the knockback heading is the particle -> victim direction.
                         bool landed = false;
                         const HitShape vol{p.hit.radius, p.hit.centre, p.hit.half_h, p.hit.half_h > 0.0f ? 1 : 0};
+                        part_atk = &vol;                                   // the boss parts' hit spark
                         for (Actor& en : world.actors()) {
                             if (en.is_player() || !en.alive() || en.destroy_requested()) continue;
                             const EnemyRender* vr = nullptr;
@@ -64,6 +65,7 @@
                                 landed = true;
                             }
                         #include "view_fx_mode0.inl"     // the rest of the mode-0 scan for a particle (Hugo's shots)
+                        part_atk = nullptr;
                         return landed;
                     }
                     if (p.hit.side == 1 && !g_lua_targets.empty()) {   // a monster's shot on the mods' other players (API 7)

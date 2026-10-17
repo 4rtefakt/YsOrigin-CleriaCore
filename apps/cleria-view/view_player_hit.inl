@@ -26,6 +26,7 @@
                 // each monster's hurt body; the victim's bank keys on this attack's serial.
                 const float pface = std::atan2(face_dir.z, face_dir.x);
                 const HitShape vol = volume_shape(atk_hb, {feet.x, feet.y + kOriginH, feet.z}, pface);
+                part_atk = &vol;                                   // the boss parts' hit spark (part_hit_feedback)
                 for (Actor& en : world.actors()) {
                     if (en.is_player() || !en.alive() || en.destroy_requested()) continue;
                     const EnemyRender* vr = nullptr;
@@ -175,6 +176,7 @@
                 #include "view_boss05_hit.inl"     // Pictimos's parts (PICTIMOS.md §P1.4.1)
                 #include "view_boss06_hit.inl"     // Zava's heads: the accept-hit callback (ZAVA_D.md §7.1)
                 #include "view_boss07_hit.inl"     // Dalles's parts (DALLES_AB.md §B.2)
+                part_atk = nullptr;                // [not modelled] Darm's parts' hit spark (that fight is ported apart)
                 #include "view_boss08_hit.inl"     // Darm's parts (DARM_D.md §4.3)
             }
             // GoLocusSword (src/cleria/locus.hpp, build/ability_re/LOCUS.md): the player's GenerateLocus
