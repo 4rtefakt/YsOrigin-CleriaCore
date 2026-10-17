@@ -15,6 +15,11 @@ substring to appear in the output, in order. Saves go to a scratch directory
 
 On a machine with no display (Linux over ssh) the cases run under SDL's offscreen video driver, set here.
 CLERIA_DRIVE_TIMEOUT=<seconds> replaces a case's 900 s limit (a software renderer is several times slower).
+
+Every case's game runs take one of a machine-wide pool of 8 slots (lock files in %TEMP%/cleria-drive-slots), so
+suites started at the same time from several checkouts share the GPU instead of starving each other into
+timeouts. A slot is a file lock: the OS releases it when the case ends, crashes, times out or the runner dies.
+    python tools/drive_regress.py --slots 4       # another pool size (CLERIA_DRIVE_SLOTS); --slots 0 = no pool
 """
 import concurrent.futures, os, subprocess, sys, tempfile, time
 
@@ -22,6 +27,47 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, "build", "Release", "cleria-view.exe")
 ASSETS = os.path.join(ROOT, "assets")
 TIMEOUT = int(os.environ.get("CLERIA_DRIVE_TIMEOUT") or 900)   # one boot of one case, seconds
+SLOTS = int(os.environ.get("CLERIA_DRIVE_SLOTS") or 8)          # the machine-wide pool (0 = none)
+SLOT_DIR = os.path.join(tempfile.gettempdir(), "cleria-drive-slots")
+
+
+class DriveSlot:
+    """One slot of the machine-wide pool, held while a case's game runs (a non-blocking lock on one of
+    SLOTS lock files, retried until one is free). The lock dies with its process."""
+
+    def __enter__(self):
+        self.f = None
+        if SLOTS <= 0:
+            return self
+        os.makedirs(SLOT_DIR, exist_ok=True)
+        while True:
+            for i in range(SLOTS):
+                f = open(os.path.join(SLOT_DIR, f"slot{i}.lock"), "a+b")
+                try:
+                    f.seek(0)
+                    if os.name == "nt":
+                        import msvcrt
+                        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    self.f = f
+                    return self
+                except OSError:
+                    f.close()
+            time.sleep(0.25)
+
+    def __exit__(self, *exc):
+        if self.f:
+            try:
+                self.f.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(self.f.fileno(), msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
+            self.f.close()
+        return False
 
 # The S_1009 statue cleanse (Yunica, flags 310 visited / 84 the Crystal), confirmed through
 # the narration box: SAVE.XSO's 311 = 1 must reach its s_SaveObjectChange child.
@@ -4436,13 +4482,15 @@ def run(name, case, exe, assets):
         if "title" in case:
             env["CLERIA_TITLE_DRIVE"] = case["title"]
         sob = [os.path.join(assets, "MAP", case["room"] + ".SOB")] if case.get("room") else []
-        r = subprocess.run([exe, assets] + sob + extra, env=env, capture_output=True, text=True, errors="replace", timeout=TIMEOUT)
-        out = r.stdout + r.stderr
-        if "drive2" in case:        # a second boot on the same save folder (`room2`: its room)
-            sob2 = os.path.join(assets, "MAP", case.get("room2", case["room"]) + ".SOB")
-            r = subprocess.run([exe, assets, sob2] + extra, env=dict(env, CLERIA_DRIVE=case["drive2"]), capture_output=True,
-                               text=True, errors="replace", timeout=TIMEOUT)
-            out += "==== second boot" + chr(10) + r.stdout + r.stderr
+        with DriveSlot():           # the machine-wide pool (SLOTS): the timeout counts from here
+            r = subprocess.run([exe, assets] + sob + extra, env=env, capture_output=True, text=True, errors="replace",
+                               timeout=TIMEOUT)
+            out = r.stdout + r.stderr
+            if "drive2" in case:    # a second boot on the same save folder (`room2`: its room)
+                sob2 = os.path.join(assets, "MAP", case.get("room2", case["room"]) + ".SOB")
+                r = subprocess.run([exe, assets, sob2] + extra, env=dict(env, CLERIA_DRIVE=case["drive2"]),
+                                   capture_output=True, text=True, errors="replace", timeout=TIMEOUT)
+                out += "==== second boot" + chr(10) + r.stdout + r.stderr
         lost = [n for n in case.get("files", []) if not os.path.exists(os.path.join(saves, n))]   # must be in the save folder
         if lost:
             out = "MISSING FILE " + ", ".join(lost)
@@ -4480,13 +4528,16 @@ def check(name, case, r, out, say):
 
 
 def main():
+    global SLOTS
     args = sys.argv[1:]
-    opt = {"--exe": EXE, "--assets": ASSETS, "--jobs": str(min(8, max(1, (os.cpu_count() or 2) // 2)))}
+    opt = {"--exe": EXE, "--assets": ASSETS, "--jobs": str(min(8, max(1, (os.cpu_count() or 2) // 2))),
+           "--slots": str(SLOTS)}
     for k in opt:
         if k in args:
             i = args.index(k)
-            opt[k] = args[i + 1] if k == "--jobs" else os.path.abspath(args[i + 1])
+            opt[k] = args[i + 1] if k in ("--jobs", "--slots") else os.path.abspath(args[i + 1])
             del args[i:i + 2]
+    SLOTS = int(opt["--slots"])
     smoke = "--smoke" in args
     if smoke:
         args.remove("--smoke")
