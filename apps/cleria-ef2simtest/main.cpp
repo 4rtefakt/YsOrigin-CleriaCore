@@ -133,6 +133,36 @@ int main(int argc, char** argv) {
               near3(depth_bias_offset({1, 1, 1}, {1, 1, 1}, 5.0f), 0, 0, 0), "no bias, or the eye at the effect: none");
     }
 
+    // ---- a kill's death effects (FUN_00478510; item/PICKUPS.md §12 item 10, counted by a Python EF2SIM over 200
+    // seeds): the draws at creation, and in all over the effect's life (the creation's included), which keep the
+    // shared xorshift in step. An ordinary kill: 1 (FUN_00478510's entry) + 91 (the puff) + 57..128 (the spark).
+    // [not checked] z_yarare03 (0x43, the revivers' puff), whose turbulence varies the count: the note gives about
+    // 1860..1910, this sim 1906..1984 over these four states.
+    {
+        struct Want { const char* file; int id; unsigned create, life; };
+        const Want ws[] = {{"COMMON/M_ZAKOYARARE.EF2", 0x56, 1, 91},        // the puff
+                           {"COMMON/Z_YARARE01.EF2", 0x41, 1, 90},          // the spark, Adol and Hugo
+                           {"PC/PC01/PC1_KEN_HIT.EF2", 0x7e, 80, 128},      // Yunica's sword
+                           {"PC/PC01/PC1_ONO_HIT.EF2", 0x7f, 80, 120},      // Yunica's axe
+                           {"PC/PC03/PC3_HIT.EF2", 0xb6, 1, 57}};           // Toal
+        for (const Want& w : ws) {
+            const Ef2 ef = Ef2::load(root / "EFFECT" / "EFT" / w.file);
+            for (std::uint32_t seed = 1; seed <= 4; ++seed) {
+                Rng rng;
+                rng.w ^= seed * 0x9e3779b9u;                       // a few states, not only the .data words
+                System sys(&rng);
+                const bool ok = ef.ok() && sys.spawn(w.id, ef, SpawnParams{}) != nullptr;
+                const std::uint64_t c0 = rng.calls;
+                int s = 0;
+                for (; ok && s < 600 && !sys.particles().empty(); ++s) { sys.step(); sys.sweep(); }
+                char what[160];
+                std::snprintf(what, sizeof what, "%s seed %u: %llu draws (%llu at creation) in %d steps", w.file,
+                              seed, (unsigned long long)rng.calls, (unsigned long long)c0, s);
+                check(ok && c0 == w.create && rng.calls == w.life && sys.particles().empty(), what);
+            }
+        }
+    }
+
     // ---- M860's pillar break (build/mech_re/KISHGAL_SHIELD.md §3.2): EF2 290 against Toal's Ignis 162 ----
     {
         const Ef2 pillar = Ef2::load(root / "EFFECT" / "EFT" / "ENEMY" / "M_860_HYOUTYUU.EF2");

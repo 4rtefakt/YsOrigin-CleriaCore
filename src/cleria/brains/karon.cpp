@@ -13,8 +13,7 @@
 // Every third tick (per actor slot) in phase 2 they look 1.5 / 2.25 (/ 3.0) ahead for a higher
 // non-sand floor and climb out with section 0x13a and their own launch.
 // [not modelled] the init's own integrator + probe calls
-// (FUN_0045a510 / FUN_0045c490, byte +0x4c3); +0x420 (written with +0x330); the +0x38c re-bury
-// trigger (its probe quantity +0x390 is untraced, so it reads 0); the jump search's per-actor-slot
+// (FUN_0045a510 / FUN_0045c490, byte +0x4c3); +0x420 (written with +0x330); the jump search's per-actor-slot
 // stagger keys on the instance id instead of the actor's address [H].
 #include <algorithm>
 #include <cmath>
@@ -108,7 +107,8 @@ AiOut skeleton(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e, const Skel& K
                 a.i(0x70c) = 0;
                 if (a.surf_ray == 0x12) { a.i(0x7a0) = 2; a.i(0x70c) = 2; }
             } else {
-                a.i(0x70c) = 2;                                    // [not modelled] +0x38c re-bury
+                a.i(0x70c) = 2;
+                if (a.buried_deep) a.i(0x7a0) = 0;                 // +0x38c: re-buried (state 2 sank to the floor)
             }
             if (a.i(0x7a0) != 0 && a.i(0x7a0) != 2) break;
             const bool near_ = hd < 5.0f || inmap ||

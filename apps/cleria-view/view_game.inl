@@ -1810,6 +1810,7 @@ title_again:
     StandingRegen regen;               // +0x760: the standing HP regeneration (hazard.hpp)
     float regen_acc = 0.0f;
     Impulse player_kb{};               // knockback velocity, player +0x338/+0x340 (hit.hpp)
+    int evxx_heals = 0;                // the live EventXX(8) heal objects (GoXx type 0x15, evxx_heal_tick)
     Impulse player_kb2{};              // knock channel 2, +0x344/+0x34c: body / bullet pushes
     float arena_last_x = 0, arena_last_z = 0;   // +0x3e0/+0x3e8: last point inside the mode-2 ring ([H] start)
     Mat4 last_vp; bool have_vp = false;  // last frame's camera, for the AI's off-screen test
@@ -2312,6 +2313,7 @@ title_again:
         xchains.clear();
         xbolts.clear();
         wrings.clear();
+        evxx_heals = 0;                                       // the GoXx pool goes with the room
         xfollowers.clear();
         gas_owner.clear();
         fxsim.clear();
@@ -4353,13 +4355,22 @@ title_again:
         return (sp >= 1 && sp <= 0xa5) ? sp : -1;
     };
     csHost.equipped_fn = [&](int id) { return inv_is_equipped(game.g_flags, inv, id); };
+    // EventXX(8) (FUN_0058f210 case 8 [BYTES 0x58f7ce..0x58f843], GOXX_PARTICLES.md §2.15): each object steps
+    // with the GoXx list from the next sim tick. With the player alive (HP >= 1): below max, Player_AddHp(+1.0)
+    // and it stays; at max, Player_AddHp(999.0) (clamped) and it dies. Dead or missing: it stays and does
+    // nothing. So the bar fills at 60 HP a second. [not modelled] Hud_SyncGauges, DAT_0076b914 |= 0x75.
+    auto evxx_heal_tick = [&] {
+        for (int i = evxx_heals; i > 0; --i) {
+            if (player.hp < 1) continue;
+            if (player.max_hp > player.hp) ++player.hp;
+            else --evxx_heals;
+        }
+    };
     csHost.event_xx_fn = [&](int n) {                     // FUN_0058f210 [EXPORT], VELAGUNDER.md §1.9
         if (n == 10) inv.accessory = 0xff;
         else if (n == 7) { inv.accessory = -1; inv.held = -1; inv.magic = -1; }
         else if (n == 2) player.sp_cur = player.sp_max;  // DAT_0076a738 = DAT_0076a734: the second gauge refilled
-        else if (n == 8) {                                // HealHp's body if alive; [not modelled] DAT_0076b914 |= 0x75
-            if (player.hp >= 1) { player.hp = player.max_hp; player.hp_lag = float(player.hp); }
-        }
+        else if (n == 8) ++evxx_heals;                    // a heal object: one HP a sim tick (evxx_heal_tick)
         else if (n == 0 || n == 12) {                     // DAT_0076c1b4 = 0, then FUN_00462c40 ends a Boost
             if (fx_live(barrier_fx)) barrier_fx->kill = true;   // kill P+0x7e0, P+0x7dc = 0 (0x58f298 / 0x58f74b)
             barrier_fx = nullptr; barrier_t = 0;
@@ -7793,6 +7804,7 @@ title_again:
             // [H] no hit tick here: whether particle hits land under a Fix is not traced.
             step_weather();                          // pool 9's weather runs under a Fix (view_weather.inl)
             step_bullets_frozen();                   // GoXx bullets fly on under a Fix (view_duel.inl)
+            evxx_heal_tick();                        // the GoXx list's EventXX(8) heals (gate S, not the Fix)
             // An attached effect reads its actor's +0x20 every step (FUN_00451e60), and scripts move
             // actors under a Fix (Eft_LocateChr on the smith and the player runs inside one): keep
             // the attach matrices current here too, as the unfrozen tick does.
@@ -8954,6 +8966,7 @@ title_again:
                 #include "view_crystal.inl"          // M980's bullet scan (M980.md §3.4a)
                 bullets.update(benv, &bev);
                 extra_runners_tick();                // the kind-0x17 runners (FUN_00591850)
+                evxx_heal_tick();                    // the EventXX(8) heals (GoXx type 0x15)
                 water_followers_tick();              // the kind-0x19 followers (FUN_005914b0)
                 for (auto it = gas_owner.begin(); it != gas_owner.end();) {
                     bool live = false;
