@@ -4,9 +4,8 @@
 // Boss05Minion records (pool order) and back. Included after view_boss04.inl; boss5_tick runs in step_meshes,
 // view_boss05_hit.inl at the player's swing, boss5_target in the enemy env (the +0x888 target override).
 // The scene light is the module's (Boss05Output::light_dir / light_col), the camera's slot 3 its preset
-// (g_boss05_cam_hook). [not modelled] the hook's distance fade of the effects 0xd3, the particle debris, the mesh
-// tint / glare,
-// the parts' contact hits.
+// (g_boss05_cam_hook). The debris pieces are pickups (in.debris), the mesh tint view_game.inl's mesh_tint.
+// [not modelled] the hook's distance fade of the effects 0xd3, the glare, the parts' contact hits.
 g_boss05_cam_hook = [&]() -> bool {
     if (game.g_flags[156] == 0 || !boss5) return false;
     const int k = g_rig.current();
@@ -85,6 +84,8 @@ auto boss5_apply = [&](const Boss05Output& out, MeshObj* bm) {
     if (out.gauge) { hud.set_boss_gauge(-9, out.gauge->first, out.gauge->second, 7000.0f, 5); gauge_owner = 0; }
     if (out.gauge_hide) hud.hide_boss_gauge();
     if (out.alpha) meshes.alpha_target("boss05", *out.alpha, 4);   // FUN_00504a40: alpha 0 over 4
+    if (out.mesh_tint) mesh_tint["boss05"] = *out.mesh_tint;      // FUN_005f51f0 (view_game.inl's hit flash draws it)
+
     if (out.destroy) {
         bm->alpha = bm->alpha_target = 0.0f; bm->no_collide = true; bm->dirty_alpha = true;
         std::printf("  [boss05] t%llu destroyed\n", (unsigned long long)tick_count);
@@ -99,6 +100,7 @@ auto boss5_tick = [&] {
     if (boss5 && boss_load[4] != mesh_load_serial) { boss5.reset(); boss5_dead_t.clear(); }   // a scene load (boss_load)
     if (!boss5) {
         boss_load[4] = mesh_load_serial;
+        mesh_tint.erase("boss05");
         Boss05Setup su;                                    // EEX record 4
         su.light_dir = csHost.light_dir; su.light_col = csHost.light_rgb;
         if (eex.bosses.size() > 4) {
@@ -186,6 +188,13 @@ auto boss5_tick = [&] {
     in.section = sect;
     in.count = bm->count;
     in.rng = [&] { return pick_rng.next(); };
+    in.debris = [&](const Boss05Debris& d) {               // FUN_00587010 with texture base 0x42, flags 0
+        SpawnArgs a;
+        a.count = d.count; a.delay_step = d.step; a.extra_life = d.m; a.flags = 0; a.size = d.size;
+        a.spin_rate = d.spin; a.h0 = d.h0; a.h1 = d.h1; a.v0 = d.v0; a.v1 = d.v1; a.debris = true;
+        a.colour = d.colour; a.bloody = settings().s.game.bloody_effect_level;
+        spawn_pickups(pick_rng, d.bag, d.n, d.pos, a, water_mode == 2, pickups);
+    };
     in.spawn = [&](const Vec3& p, int deg, int lvl, float* def) -> int {   // FUN_00475710(cast 0x1a, deg, pos, level)
         SpawnRequest req;
         req.cast_type = 0x1a; req.pos = p; req.yaw_degrees = float(deg);

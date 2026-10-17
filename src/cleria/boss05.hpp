@@ -15,14 +15,15 @@
 //
 // The scene light (LightDir 0x76a564.., LightCol 0x76a570..) is the module's while the fight runs: an ease toward the
 // fight's direction and the room's colour every frame, the intro's red, the booster's violet pulse, the pink hold after
-// UTIAGE, the reset at b4 500 [EXPORT 0052e2c0.c:185-208, 505-559, 876-902, 993-1021].
-// Tags: [BYTES]/[DATA]/[H] as the spec; [not modelled] engine behaviour left out: the death's light (the UTIAGE flash
-// and the fade, 0052e2c0.c:1614, 2155-2171), the particle emitter
-// FUN_00587010 (intro / death debris and its draws), the mesh tint and the glare texture, the parts' contact
+// UTIAGE, the reset at b4 500 [EXPORT 0052e2c0.c:185-208, 505-559, 876-902, 993-1021], the booster shots' light kick,
+// TATAKITUKE's flash, the pounce's, the guts' dimming [0052e2c0.c:1589-1614, 2155-2171]. The intro's and the death's
+// debris (FUN_00587010) go through Boss05Input::debris in place; the death's mesh tint ramp is Boss05Output::mesh_tint.
+// Tags: [BYTES]/[DATA]/[H] as the spec; [not modelled] engine behaviour left out: the glare texture, the parts' contact
 // hits (GoXx type 4, U2), the death's armour-break visuals timing beyond the effects, Hugo's scripted rounds'
 // cutscene side.
 #pragma once
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -78,6 +79,15 @@ struct Boss05Minion {
     std::uint32_t or130 = 0;        // +0x130 |= (absorbed: 8 | 0x2000)
 };
 
+// One FUN_00587010 call: texture base 0x42 (the debris pieces), flags 0, yaw -pi..pi, bounce colour `colour`.
+struct Boss05Debris {
+    const int* bag = nullptr;
+    int n = 0, count = 0, step = 0, m = 0;
+    Vec3 pos{};
+    float size = 1, spin = 0, h0 = 0, h1 = 0, v0 = 0, v1 = 0;
+    std::uint32_t colour = 0;
+};
+
 struct Boss05Input {
     bool fight = false;             // g_flags[156] != 0
     bool flag224 = false;           // g_flags[224] != 0
@@ -93,6 +103,8 @@ struct Boss05Input {
     std::function<std::uint32_t()> rng;
     // FUN_00475710(cast 0x1a, deg, pos, level): the new actor's instance id (0 when the pool is full) and its DEF.
     std::function<int(const Vec3& pos, int deg, int level, float* def)> spawn;
+    // FUN_00587010 (PICKUPS.md §4) called in place: it draws from the shared RNG between the brain's own draws.
+    std::function<void(const Boss05Debris&)> debris;
     Vec3 light_dir{0, -1, 0}, light_col{1, 1, 1};   // the scene light now (0x76a564.. / 0x76a570..)
 };
 
@@ -131,6 +143,7 @@ struct Boss05Output {
     bool destroy = false;
     std::optional<float> alpha;     // obj+0x41c target (death b4 350: fade over 4)
     std::optional<Vec3> light_dir, light_col;   // the scene light written this frame
+    std::optional<Vec3> mesh_tint;  // FUN_005f51f0(M, rgb): every material record's +0x24 (death b4 < 260)
 };
 
 // The camera preset blk+0x1ac.. (PICTIMOS.md §5.3) that FUN_0042bb10 copies into region slot 3 while it is current:
@@ -210,6 +223,15 @@ private:
     Vec3 light_dir0_{0, -1, 0}, light_col0_{1, 1, 1};   // blk+0x188 / blk+0x1a0 (the room's light at the ctor)
     Boss05Camera cam_{};                                 // blk+0x1ac..0x1e4
     void light_col(const Vec3& c) { out_->light_col = c; }
+    void debris(const Boss05Debris& d) { if (in_->debris) in_->debris(d); }
+    // A booster shot's light kick: LightDir = normalize(GetPos - S), then y -= 0.1 (0x6bd19c) [BYTES 0x530b7f..0x530bda].
+    void ld_kick(const Vec3& S) {
+        const float dx = pos_.x - S.x, dy = pos_.y - S.y, dz = pos_.z - S.z;
+        const float l = std::sqrt(dx * dx + dy * dy + dz * dz);
+        Vec3 d = l == 0.0f ? Vec3{} : Vec3{dx * (1.0f / l), dy * (1.0f / l), dz * (1.0f / l)};
+        d.y -= 0.1f;
+        out_->light_dir = d;
+    }
     std::array<int, 4> feet_{100, 100, 100, 100}; // 0xe4..0xf0
     int f4_ = 0, f8_ = 0, fc_ = 0;
     std::array<bool, 4> aura_{};                  // 0x100..0x10c

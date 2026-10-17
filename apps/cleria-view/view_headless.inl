@@ -325,25 +325,27 @@ static int render_play(Gpu& g, Room& room, const fs::path& out,
                                 fx_ticks, sim.effects().size(), sim.particles().size());
                 draw_particles(g, sim, asset_root, eft2, cview, dview, cam.forward(), cam.pos, true);   // layer 4's meshes
                 draw_particles(g, sim, asset_root, eft2, cview, dview, cam.forward(), cam.pos);
-                // CLERIA_BULLET_PREVIEW=<effectId>[,age] — park one projectile in front of
-                // the player and draw it. Bullet art was otherwise only reachable by firing
-                // in the live loop, so its orientation and size could never be checked
-                // against a reference. 130 = Hugo's basic shot (PC2_DEF_ATTACK.eft).
+                // CLERIA_BULLET_PREVIEW=<effectId>[,age[,scale]]: park one effect in front of the player, run its
+                // particles `age` steps and draw them as the game does (draw_particles: a B2 0x100 emitter is a
+                // camera-facing billboard, FUN_0044f2e0). 130 = Hugo's basic shot (PC2_DEF_ATTACK.eft).
                 if (const char* bp = std::getenv("CLERIA_BULLET_PREVIEW")) {
-                    Projectile p;
-                    p.effect_id = std::atoi(bp);
+                    const int id = std::atoi(bp);
                     const char* comma = std::strchr(bp, ',');
-                    p.age = comma ? std::atoi(comma + 1) : 4;
+                    const int age = comma ? std::atoi(comma + 1) : 4;
                     const char* c2 = comma ? std::strchr(comma + 1, ',') : nullptr;
-                    if (c2) p.scale = float(std::atof(c2 + 1));
-                    p.dir = {1, 0, 0};                       // flying +X, across the shot
-                    p.pos = {feet.x + 2.0f, feet.y + 1.0f, feet.z};   // ~chest height
-                    p.life = 60;
-                    std::vector<Projectile> shots{p};
-                    draw_projectiles(g, shots, asset_root, efl2, eft2, cview, dview,
-                                     cam.forward());
-                    std::printf("play: bullet preview effect %d age %d at (%.1f,%.1f,%.1f)\n",
-                                p.effect_id, p.age, p.pos.x, p.pos.y, p.pos.z);
+                    const float sc = c2 ? float(std::atof(c2 + 1)) : 1.0f;
+                    const fs::path ep = efl2.path(asset_root, id);
+                    const Ef2 pef = ep.empty() ? Ef2{} : Ef2::load(ep);
+                    ef2sim::Rng prng;
+                    ef2sim::System psim(&prng);
+                    ef2sim::SpawnParams sp;
+                    sp.pos = {feet.x + 2.0f, feet.y + 1.0f, feet.z};   // ~chest height
+                    sp.scale = {sc, sc, sc};
+                    if (psim.spawn(id, pef, sp))
+                        for (int t = 0; t < age; ++t) { psim.step(); psim.sweep(); }
+                    draw_particles(g, psim, asset_root, eft2, cview, dview, cam.forward(), cam.pos);
+                    std::printf("play: bullet preview effect %d age %d at (%.1f,%.1f,%.1f): %zu particle(s)\n",
+                                id, age, sp.pos.x, sp.pos.y, sp.pos.z, psim.particles().size());
                 }
             }
         }

@@ -306,18 +306,27 @@ void Boss05::intro_hold() {
             light_col(bc < 0x1b3 ? Vec3{0.9f, 0.7f, 0.7f} : Vec3{0.9f, 0.1f, 0.1f});
         }
     }
-    if (bc == 1) out_->sounds.push_back(285);
+    static const int kIntroBag[5] = {0, 1, 2, 3, 4};
+    if (bc == 1) {                                                 // the PART [0x52ea67..0x52eb4b], then SE 285
+        const Vec3 at{(P_.x * 90.0f + pos_.x * 10.0f) * 0.01f, 10.0f, (P_.z * 90.0f + pos_.z * 10.0f) * 0.01f};
+        debris({kIntroBag, 5, 3, 1, 5, at, 1.4f, 0.4f, 0.03f, 0.05f, 0.03f, 0.05f, 1});
+        out_->sounds.push_back(285);
+    }
     if (bc > 100 && bc < 330 && bc % 20 == 0) shake(5, {0.2f, 0.2f, 0});
     if (bc == 100 || bc == 130 || bc == 160 || bc == 200 || bc == 220 || bc == 230) {
         const float t = float((bc - 50) >> 1);
         Vec3 Q = mul(add(mul(pos_, t), mul(P_, 100.0f - t)), 0.01f);
         Q.x += 8.0f * U1() - 4.0f;
         Q.z += 6.0f * U1() - 3.0f;
+        debris({kIntroBag, 5, bc / 20 + 2, 1, 3, {Q.x, 13.0f, Q.z}, 1.4f, 0.4f, 0.03f, 0.05f, 0.03f, 0.05f, 1});   // [0x52ebeb..0x52eda3]
         Boss05Effect& e = fx(528, {Q.x, 0, Q.z});
         e.rot = {0, 1.0f, 0}; e.power = 1.0f;
     }
     if (bc == 350) shake(70, {0.2f, 0.2f, 0});
-    if (bc >= 350 && bc <= 390) (void)U1();                        // the PART size draw (the PART itself: [not modelled])
+    if (bc >= 350 && bc <= 390) {                                  // the PART, its size the draw u [0x52eec7..0x52ef6b]
+        const float sz = U1() + 1.0f;
+        debris({kIntroBag, 5, 5, 1, 5, {pos_.x, 16.0f, pos_.z}, sz, 0.4f, 0.03f, 0.15f, 0.03f, 0.15f, 1});
+    }
     if (bc >= 330 && bc <= 399 && bc % 5 == 0) {
         float X = pos_.x, Z = pos_.z - 5.0f;
         if (bc != 395) { X = pos_.x + 10.0f * U1() - 5.0f; Z = pos_.z + 2.0f * U1() - 5.0f; }
@@ -453,13 +462,16 @@ void Boss05::case_ooburi() {
     if (b4_ == 75 && windup_ != 0) b4_ = 105;
     if (b4_ == 105) { out_->sounds.push_back(283); speed(1.0f); }
     if (b4_ == 115) {
-        bullet(1, 380, {pos_.x + 5 * c, 0.5f, pos_.z + 5 * s}, fwd_, {{0, 0.3f}, {1, 0.035f}, {3, 1.0f}, {4, -2.0f}});
-        out_->sounds.push_back(271); speed(1.0f);
+        const Vec3 S{pos_.x + 5 * c, 0.5f, pos_.z + 5 * s};
+        bullet(1, 380, S, fwd_, {{0, 0.3f}, {1, 0.035f}, {3, 1.0f}, {4, -2.0f}});
+        out_->sounds.push_back(271); ld_kick(S); speed(1.0f);
     }
     if (b4_ == 125) {
-        bullet(1, 381, {pos_.x + 10 * c, 3.5f, pos_.z + 10 * s}, fwd_, {{0, 0.3f}, {1, 0.035f}, {3, 1.0f}, {4, -2.0f}});
+        const Vec3 S{pos_.x + 10 * c, 3.5f, pos_.z + 10 * s};
+        bullet(1, 381, S, fwd_, {{0, 0.3f}, {1, 0.035f}, {3, 1.0f}, {4, -2.0f}});
         out_->sounds.push_back(272);
         feet_[0] = feet_[2] = 0;
+        ld_kick(S);
     }
 }
 
@@ -476,6 +488,7 @@ void Boss05::case_yokonagi() {
     if (b4_ != 56) return;
     const float th = theta(), c = cosf_(th), s = sinf_(th);
     const Vec3 S{pos_.x + 5 * c, 0.5f, pos_.z + 5 * s};
+    if (d8_ != 0) ld_kick(S);
     if (variant_ == 0) bullet(1, 380, S, fwd_, {{0, 0.3f}, {1, 0.035f}, {3, 1.0f}, {4, -2.0f}});
     if (variant_ == 1) {                                           // the two side shots (0.9 / 1.5: as read)
         const Vec3 Sa{S.x + 5 * cosf_(th + 0.9f), 0.5f, S.z + 5 * sinf_(th + 1.5f)};
@@ -496,6 +509,7 @@ void Boss05::case_tatenagi() {
         if (variant_ == 1)
             bullet(4, 381, S, fwd_, {{0, 0.01f}, {1, 0.02f}, {3, 1.0f}, {4, -2.0f}, {7, ibits(1)}, {8, 0.0174533f},
                                      {10, 1.0f}, {11, 20.0f}});
+        if (sg > 0.0f && d8_ != 0) ld_kick(S);                     // only after the first shot
     }
     out_->sounds.push_back(272);
 }
@@ -505,8 +519,10 @@ void Boss05::case_tatakituke() {                                   // §B.5
     if (b4_ == 10) speed(0.2f);
     if (b4_ == 33) b4_ = 55;
     if (b4_ == 55) { out_->sounds.push_back(273); out_->sounds.push_back(283); speed(1.0f); }
+    if (b4_ > 88 && b4_ < 160) out_->light_dir = Vec3{0.0f, 1.0f, 0.0f};    // [0052e2c0.c:1589-1593]
     if (b4_ == 88) {
         speed(0.2f); shake(20, {0, 0.6f, 0}); out_->rumble.push_back(1); out_->zoom = std::make_pair(0.5f, -0.005f);
+        light_col({0.4f, 0.4f, 0.4f});                             // F+0x80 = 0.4 [0052e2c0.c:1613-1614]
         Boss05Effect& e = fx(378, {pos_.x + 8 * c, pos_.y + 0.2f, pos_.z + 8 * s});
         e.rot = {0, yaw_ + kPi, 0}; e.scale = {2, 2, 2}; e.power = 1.0f; e.rtype = 2;
     }
@@ -634,6 +650,7 @@ void Boss05::case_jump() {                                         // §C.3
         speed(0.5f);
         skew_ = RR(-0.9424779f, 0.9424779f);
         (void)RR(-0.9424779f, 0.9424779f);                         // blk+0x200: a dead draw
+        out_->light_dir = Vec3{0.0f, 1.0f, 0.0f};                  // the prologue eases it back at 0.02 a frame
         const Vec3 E{pos_.x + 8 * c, pos_.y + 0.2f, pos_.z + 8 * s};
         Boss05Effect& e = fx(378, E);
         e.rot = {0, yaw_ + kPi, 0}; e.scale = {1.5f, 1.5f, 1.5f}; e.power = 1.0f;
@@ -652,6 +669,15 @@ void Boss05::case_dead() {                                         // §C.4 the 
         if (vy_ < -2.0f) { shake(20, {0, 0.6f, 0}); pos_.y = 0; vy_ = 0; }
     }
     if (b4_ == 1) { ++f8_; speed(0.5f); }
+    // The light dims to 0.4 x the backup over 120 frames, then holds (F+0x60 = 120, F+0x80 = 0.4) [BYTES
+    // 0x53353c..0x533642]: (c (120 - b4) + c 0.4 b4) / 120, in that order, the 1/120 as 0x6bd070.
+    if (b4_ < 120) {
+        const float u = float(120 - b4_), v = float(b4_);
+        auto ch = [&](float c) { return (c * 0.4f * v + u * c) * 0.008333334f; };
+        light_col({ch(light_col0_.x), ch(light_col0_.y), ch(light_col0_.z)});
+    } else {
+        light_col({light_col0_.x * 0.4f, light_col0_.y * 0.4f, light_col0_.z * 0.4f});
+    }
     if (b4_ == 120) {
         out_->sounds.push_back(280);
         for (int h = 0; h < 2; ++h)
@@ -770,6 +796,10 @@ void Boss05::death() {
     }
     if (b4_ == 20) shake(190, {0.2f, 0.2f, 0});
     if (b4_ == 200 && !r291) freeze_clip_ = true;                  // byte obj+0x28f = 1 [0x534917]
+    if (b4_ < 260 && !r291) {                                      // FUN_005f51f0: the mesh tint ramp [BYTES 0x53492b..0x53496f]
+        const float k = float(b4_) / 900.0f;                       // 900 = 0x6bde40 (divss)
+        out_->mesh_tint = Vec3{k, k, k};
+    }
     if (b4_ >= 3 && b4_ <= 199 && b4_ % 60 == 0) out_->rumble.push_back(5);
     if (b4_ == 290) out_->sounds.push_back(188);
     if (b4_ == 340 && !r291) {
@@ -783,6 +813,15 @@ void Boss05::death() {
         out_->zoom = std::make_pair(0.8f, -0.05f);
         out_->sounds.push_back(287); out_->rumble.push_back(3);
         shake(5, {0.2f, 0.2f, 0});
+        // The debris at nodes j = 0 .. N - 2 (N = *(M + 0x1c); position = the node matrix's row 3): per node
+        // FUN_00587010(bag {0x55..0x59}, count 4, step 1, m 5, size 1.0, spin 0.4, h / v 0.005..0.05, colour 0), then
+        // (bag {0..5, 0x55..0x58}, count 2, step 3, size 1.5): 25 + 20 draws [BYTES 0x53470f..0x5348c7].
+        static const int kBag1[5] = {0x55, 0x56, 0x57, 0x58, 0x59};
+        static const int kBag2[10] = {0, 1, 2, 3, 4, 5, 0x55, 0x56, 0x57, 0x58};
+        for (std::size_t j = 0; j + 1 < in_->nodes.size(); ++j) {
+            debris({kBag1, 5, 4, 1, 5, in_->nodes[j], 1.0f, 0.4f, 0.005f, 0.05f, 0.005f, 0.05f, 0});
+            debris({kBag2, 10, 2, 3, 5, in_->nodes[j], 1.5f, 0.4f, 0.005f, 0.05f, 0.005f, 0.05f, 0});
+        }
         out_->alpha = 0.0f;                                        // FUN_00504a40: alpha target 0 over 4 frames
     }
     // Boss rush: the alpha <= 0.2 test clears flag 156. FUN_00504a40(4) steps 1/4 a frame [EXPORT go_mesh.c], so the

@@ -434,6 +434,17 @@ fn fs_mat_add(in : VsOut) -> @location(0) vec4<f32> {
 fn fs_char(in : VsOut) -> @location(0) vec4<f32> {
   let tc = textureSample(tex, smp, in.uv);
   if (tc.a < 0.004) { discard; }
+  return char_shade(in, tc);
+}
+// The body's depth pass (FUN_00474290, preset 0x24f51 [EXPORT 00474290.c:104-113]): fs_char under ALPHAREF index 1 =
+// 0x60, ALPHAFUNC GREATEREQUAL, on the final alpha (texture x vertex alpha): only those texels draw and write depth.
+@fragment
+fn fs_char_pre(in : VsOut) -> @location(0) vec4<f32> {
+  let o = char_shade(in, textureSample(tex, smp, in.uv));
+  if (round(o.a * 255.0) < 96.0) { discard; }
+  return o;
+}
+fn char_shade(in : VsOut, tc : vec4<f32>) -> vec4<f32> {
   // D3D fixed function with SPECULARENABLE on (FUN_005f1870 sets render state 0x1d = 1 at device
   // init): texture x diffuse + the vertex specular, saturated, before the fog. The actor colour
   // builder FUN_00473c60 writes the specular word (+0x14c): the hurt tint (0x6b3713), the pickup
