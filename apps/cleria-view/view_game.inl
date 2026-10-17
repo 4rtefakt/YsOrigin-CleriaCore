@@ -7533,6 +7533,19 @@ title_again:
             // frame 0) and settles to idle on arrival, as the generic mover's table does. The run
             // stage (+0x4ca, a RunOrWalk'd MoveTo) plays the run section 1 [H-high: the table].
             const Actor* wp = world.player();
+            // A pinned player (Chr_Pattern) a script walks: her mover FUN_00465170 still asks for the locomotion table's
+            // section (0x69bd0c: idle 2, walk 0, run 1) when the current one is below 3 or 0x10a and differs
+            // [EXPORT 00465170.c:404-443, 1931-1945]; FUN_00446550 drops the pin on any request (issue #102). So the
+            // MoveTo's walk releases her, as the puppets' mover does, and an idle pin holds.
+            if (wp && wp->pattern.pinned() && wp->anim_motion < 0 && grounded) {
+                const int want = csHost.p_moving ? (csHost.p_running() ? 1 : 0) : 2;
+                const int sec = avm.section();
+                if ((sec < 3 || sec == 0x10a) && sec != want) {
+                    avm.set_section(want, /*force*/true);
+                    std::printf("  [pin] t%llu player released by the mover's section %d request (was %d)\n",
+                                (unsigned long long)tick_count, want, sec);
+                }
+            }
             if (!(wp && wp->pattern.pinned())) {
                 if (wp && wp->anim_motion >= 0) {
                     if (p_motion_applied != wp->anim_motion) {
