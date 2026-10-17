@@ -196,9 +196,8 @@ struct Player {
     int magic = -1;     // DAT_0076a630, the equipped bracelet 0x74..0x76 (the HUD's skill badge)
     // Red HP damage-lag "ghost" bar (build/hud_re/HUD_HP_BARS.md, H3). The HP widget is
     // {cur, lag, max}: on damage the lag holds the old value and decays toward cur, drawing
-    // the red trail in the [cur, lag] segment. Decay = 0.2 * coeff * max per tick; the coeff
-    // (widget+0x2c) is a static-init [UNKNOWN] (~1), so the RATE is env-tunable (CLERIA_HPLAG);
-    // the MODEL (linear catch-up) is [C-DIS]. mutable: a render-side catch-up cache.
+    // the red trail in the [cur, lag] segment. It moves 0.2 * 0.02 * max per tick both ways (the
+    // .data coeff widget+0x2c = 0.02, view_hud.inl). mutable: a render-side catch-up cache.
     mutable float hp_lag = 400;
     // EX / Boost gauge (build/ability_re/BOOST.md, build/hud_re/HUD_BOOST_ARC.md). 0..30000,
     // full = Boost-ready. Builds on combat hits (dealt + taken); drawn as the code-traced C-arc
