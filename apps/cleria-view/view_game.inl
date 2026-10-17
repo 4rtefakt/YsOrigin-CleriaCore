@@ -700,9 +700,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         if (id == cur_bgm) return;
         cur_bgm = id;
         if (id == 0) {
-            // [approx] Bgm_Play(0) re-queues a 3.5 s fade on a track a Bgm_Stop(ms) is already
-            // fading; the earlier, shorter stop still lands first. Keep that fade instead of a cut.
-            if (!audio.bgm_fading()) audio.stop_bgm();
+            // Bgm_Play(0): the 3.5 s fade (FUN_005cde10(0xdac), BGM.md §7.4). [approx] on a track a Bgm_Stop(ms) is
+            // already fading it re-queues that fade; the earlier, shorter stop still lands first, so keep it.
+            if (!audio.bgm_fading()) audio.fade_out_bgm(3500);
         } else {
             bgm_start(id);
         }
@@ -4560,11 +4560,17 @@ title_again:
         clip_near = n; clip_far = f;
         std::printf("  [scene] clip planes %.1f / %.1f (op 0xa2)\n", n, f);
     };
+    // Bgm_Play(id) = FUN_00432ee0 [BYTES 0x432f11]: the playing stream is faded over 3500 ms (FUN_005cde10(0xdac)) and,
+    // for an id, the file opened by FUN_005cde80. The same file re-opens in the same slot, cancelling that slot's
+    // queued fade: a restart from the top (BGM.md §7.4). [approx] another file plays in the other slot while the old
+    // one fades; here it cuts. Bgm_Play(0) is the fade alone; a shorter Bgm_Stop fade already running is kept (as
+    // apply_bgm).
     csHost.bgm_play_fn = [&](int id) {
         if (id == -1) id = default_bgm;
-        if (bgm_trace && id != cur_bgm) std::printf("  [bgm] %d (script)\n", std::max(id, 0));
-        if (id <= 0) { audio.stop_bgm(); cur_bgm = 0; return; }
-        if (id == cur_bgm) return;
+        if (bgm_trace && (id != cur_bgm || id > 0))
+            std::printf("  [bgm] %d (script%s)\n", std::max(id, 0), id == cur_bgm ? ": restart" : "");
+        if (id <= 0) { if (!audio.bgm_fading()) audio.fade_out_bgm(3500); cur_bgm = 0; return; }
+        if (id == cur_bgm) audio.stop_bgm();
         cur_bgm = id;
         bgm_start(id);
     };
