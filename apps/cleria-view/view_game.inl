@@ -4756,6 +4756,8 @@ title_again:
     //   loops                 print the ids of the looping SE voices (Audio::looping)
     //   blackout[=rrggbb]     hold the fader at full (as a script's Fader_Target(1) left behind), colour rgb
     //   oktap                 a real one-tick press of the Attack/OK key (view_access.inl)
+    //   waitlog=<text>[,N]    the later commands wait until a mod logs a line holding <text> (N ticks at most,
+    //                         3600 by default): for replies in real time, an Archipelago server's (view_lua.inl)
     // A drive run is lockstep (one tick a frame); CLERIA_DRIVE_REALTIME=1 paces it by the wall clock.
     // A scene load builds every object anew (FUN_00431260 / FUN_00434020, SCENEFLOW.md �6.2): a Retry or a load
     // into a boss room constructs the boss again (full HP, its first state, FUN_0041fd10's retry count). Bosses
@@ -6929,6 +6931,7 @@ title_again:
         if (!shell.open && lua_modal_pauses() && !drive.empty()) {   // CLERIA_DRIVE runs on under a mod's window (one tick a frame)
             ++tick_count;
             for (const DriveCmd& dc : drive) if (dc.tick == tick_count) run_drive(dc.cmd);
+            if (lua_drive_holding()) for (DriveCmd& dc : drive) if (dc.tick > tick_count) ++dc.tick;   // waitlog= (view_lua.inl)
         }
         if (paused && book.is_open()) {
             bookAccum = lockstep ? kTickDt : bookAccum + real_dt;   // a drive run: one book frame a frame
@@ -6937,6 +6940,7 @@ title_again:
                 if (!drive.empty()) {                        // CLERIA_DRIVE runs on through the book
                     ++tick_count;
                     for (const DriveCmd& dc : drive) if (dc.tick == tick_count) run_drive(dc.cmd);
+                    if (lua_drive_holding()) for (DriveCmd& dc : drive) if (dc.tick > tick_count) ++dc.tick;   // waitlog= (view_lua.inl)
                 }
                 // The input record (FUN_005d2ba0, PAUSEBOOK_DRAW.md §0.7) with the book's 4-way stick:
                 // OK 0x2000 / Cancel 0x4000 edges, the auto-repeat steps (1st frame, 28th, every 5th),
@@ -7057,6 +7061,7 @@ title_again:
         if (!running) break;                       // a run ended: the title
         speedrun_tick(room.name, hud.boss_frac >= 0.0f, hud.boss_cur, game.g_flags, player.hp > 0);   // IGT, auto-splits
         for (const DriveCmd& dc : drive) if (dc.tick == tick_count) run_drive(dc.cmd);
+        if (lua_drive_holding()) for (DriveCmd& dc : drive) if (dc.tick > tick_count) ++dc.tick;   // waitlog= (view_lua.inl)
         if (!drive_more.empty()) { drive.insert(drive.end(), drive_more.begin(), drive_more.end()); drive_more.clear(); }
         access_tick();                            // a drive's held Esc, the shake scale (view_access.inl)
         ++ticks;
