@@ -12,7 +12,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 curl -fsSL "https://ffmpeg.org/releases/ffmpeg-$VERSION.tar.xz" | tar -xJ -C "$tmp"
 cd "$tmp/ffmpeg-$VERSION"
-./configure --prefix="$prefix" --enable-shared --disable-static --disable-programs --disable-doc \
+./configure --prefix="$prefix" --cc="${CC:-cc}" --enable-shared --disable-static --disable-programs --disable-doc \
   --disable-everything --disable-autodetect --disable-network --disable-avdevice --disable-avfilter \
   --disable-swresample --disable-x86asm --enable-protocol=file --enable-demuxer=avi --enable-decoder=mpeg4 \
   --enable-parser=mpeg4video --enable-swscale
