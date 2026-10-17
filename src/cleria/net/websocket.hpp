@@ -1,13 +1,17 @@
-// A WebSocket client over WinHTTP (Windows 8+; TLS by SChannel and the OS certificate store): the
-// transport of the Lua mods' cleria.net.websocket (LUA_API.md §8; first written for the Archipelago
-// connection, ARCHIPELAGO.md §2, now the Lua mod samples/mods/archipelago_lua). No third-party code.
-// Linux / macOS: the same class over libcurl's WebSocket API (CMake CLERIA_CURL, websocket_curl.inl: one
-// worker thread does the handshake, the sends and the receives); without it, a stub (supported() false).
+// A WebSocket client: the transport of the Lua mods' cleria.net.websocket (LUA_API.md §8; first written for
+// the Archipelago connection, ARCHIPELAGO.md §2, now the Lua mod samples/mods/archipelago_lua).
+// The HTTP upgrade and the frames are our own (websocket_frames.inl), so the permessage-deflate extension
+// (RFC 7692) can be negotiated: the server's compressed messages are inflated with miniz, ours go out
+// uncompressed. Under it: winsock, and SChannel for wss:// (TLS 1.2, the OS certificate store) on Windows
+// (websocket_tls_win.inl); libcurl's raw connection on Linux / macOS (CMake CLERIA_CURL, websocket_curl.inl);
+// without it, a stub (supported() false).
+// Windows falls back to WinHTTP's WebSocket (through the system proxy, uncompressed) when no candidate URL
+// opens directly: WinHTTP fails the upgrade when the server accepts any extension, so it cannot be the main path.
 //
-// One worker thread per connection does the handshake and then blocks in WinHttpWebSocketReceive;
-// a second thread drains the send queue (WinHTTP allows one pending send and one pending receive).
-// The game thread only calls open / send / close / poll, which never block on the network
-// (close() waits at most ~2 s for a polite close handshake, then aborts the handles).
+// One worker thread per connection does the handshake, the queued sends and the receives, waiting on
+// the socket and on a wake-up that send() and close() signal (WinHTTP fallback: it blocks in
+// WinHttpWebSocketReceive, and a second thread drains the send queue). The game thread only calls open / send / close / poll, which never
+// block on the network (close() waits at most ~2 s for a polite close handshake, then aborts).
 //
 // Addresses: "ws://host:port/path", "wss://...", "archipelago://host:port" (= ws://, as the
 // reference client), or a bare "host[:port]". A bare address tries wss:// first and falls back to
@@ -16,10 +20,8 @@
 // reply is not HTTP); either way the first scheme that completes the handshake wins. Default port
 // 38281 (CommonClient.py server_loop).
 //
-// Not supported by WinHTTP: the permessage-deflate extension. AP's protocol doc says clients
-// "should support per-message compression" and calls uncompressed connections "deprecated" (still
-// accepted today). [H] If AP ever requires compression, replace this transport with our own
-// framing (miniz has raw deflate) over winsock + SChannel; the Client above it is unaffected.
+// AP's protocol doc says clients "should support per-message compression"; MultiServer warns a client
+// that connected without it.
 #pragma once
 #include <atomic>
 #include <condition_variable>

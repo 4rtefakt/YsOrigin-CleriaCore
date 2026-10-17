@@ -540,8 +540,9 @@ target_sources(cleria PRIVATE src/cleria/platform_math.cpp src/cleria/msvc_trigf
                src/cleria/msvc_atan2.cpp src/cleria/msvc_pow.cpp src/cleria/msvc_powf.cpp src/cleria/msvc_hypotf.cpp
                src/cleria/msvc_exp_log.cpp)
 add_library(cleria-net STATIC src/cleria/net/websocket.cpp src/cleria/net/socket.cpp)
+target_link_libraries(cleria-net PRIVATE miniz)   # inflates permessage-deflate messages
 if(WIN32)
-target_link_libraries(cleria-net PUBLIC cleria winhttp ws2_32)
+target_link_libraries(cleria-net PUBLIC cleria winhttp ws2_32 secur32)
 else()
   # Off Windows the WebSocket is libcurl's (7.86+, built with WebSockets) when this is on; off, opening
   # one reports "unsupported on this platform" through the Closed event.
@@ -564,7 +565,7 @@ add_executable(cleria-jsontest apps/cleria-jsontest/main.cpp)
 target_link_libraries(cleria-jsontest PRIVATE cleria)
 # cleria-nettest — address parsing and a loopback WebSocket echo server (127.0.0.1 only; no internet).
 add_executable(cleria-nettest apps/cleria-nettest/main.cpp)
-target_link_libraries(cleria-nettest PRIVATE cleria-net)
+target_link_libraries(cleria-nettest PRIVATE cleria-net miniz)
 if(WIN32)
   target_link_libraries(cleria-nettest PRIVATE ws2_32)
 endif()

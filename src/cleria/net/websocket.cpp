@@ -1,9 +1,14 @@
-// WinHTTP WebSocket client — see websocket.hpp. Off Windows: libcurl (CLERIA_CURL, websocket_curl.inl)
-// or a stub whose open() reports "unsupported on this platform".
+// WebSocket client — see websocket.hpp. Our own framing (websocket_frames.inl) over winsock + SChannel on Windows
+// (WinHTTP's WebSocket as the fallback), over libcurl elsewhere (CLERIA_CURL, websocket_curl.inl), or a stub whose
+// open() reports "unsupported on this platform".
 #include "cleria/net/websocket.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <random>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -12,14 +17,22 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <winhttp.h>
+#define SECURITY_WIN32
+#include <schannel.h>
+#include <security.h>
 #elif defined(CLERIA_CURL)
 #include <curl/curl.h>
+#include <fcntl.h>
 #include <poll.h>
-
-#include <algorithm>
-#include <cstring>
+#include <unistd.h>
+#endif
+#if defined(_WIN32) || defined(CLERIA_CURL)
+#define MINIZ_NO_ZLIB_COMPATIBLE_NAMES   // keeps deflate / inflate free as plain names
+#include "miniz.h"
 #endif
 
 namespace cleria::net {
@@ -125,8 +138,11 @@ struct WebSocket::Conn {
     WsOptions opt;
     std::mutex hmu;                       // guards the handles below (abort() vs the worker)
     HINTERNET session = nullptr, connect = nullptr, request = nullptr, ws = nullptr;
+    SOCKET sock = INVALID_SOCKET;         // our own transport's socket
     std::atomic<bool> stop{false};        // close() asked
     std::atomic<bool> by_user{false};
+    std::atomic<bool> aborted{false};     // abort(): our own transport drops the connection
+    HANDLE wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);   // wakes our own transport's wait on the socket
     std::mutex qmu;
     std::condition_variable qcv;
     std::deque<std::string> outq;
@@ -137,6 +153,9 @@ struct WebSocket::Conn {
     bool done = false;
     std::chrono::steady_clock::time_point close_deadline{};
     std::string send_error;
+
+    ~Conn() { if (wake) CloseHandle(wake); }
+    void wake_up() { if (wake) SetEvent(wake); }
 
     void set(HINTERNET& slot, HINTERNET h) {
         std::lock_guard<std::mutex> l(hmu);
@@ -151,14 +170,24 @@ struct WebSocket::Conn {
         std::lock_guard<std::mutex> l(hmu);
         if (slot) { WinHttpCloseHandle(slot); slot = nullptr; }
     }
-    // Closing the handles makes any blocked WinHTTP call on them return.
+    void set_sock(SOCKET s) {
+        std::lock_guard<std::mutex> l(hmu);
+        sock = s;
+    }
+    // Closing the handles makes any blocked WinHTTP call on them return; shutting the socket down, a blocked send.
     void abort() {
+        aborted = true;
+        wake_up();
         std::lock_guard<std::mutex> l(hmu);
         for (HINTERNET* h : {&ws, &request, &connect, &session})
             if (*h) { WinHttpCloseHandle(*h); *h = nullptr; }
+        if (sock != INVALID_SOCKET) shutdown(sock, SD_BOTH);
     }
 };
+#include "websocket_frames.inl"
+#include "websocket_tls_win.inl"
 #elif defined(CLERIA_CURL)
+#include "websocket_frames.inl"
 #include "websocket_curl.inl"   // WebSocket::supported, WebSocket::Conn, WebSocket::worker over libcurl
 #endif
 
@@ -199,6 +228,7 @@ bool WebSocket::send(std::string text) {
         conn_->outq.push_back(std::move(text));
     }
     conn_->qcv.notify_one();
+    conn_->wake_up();
     return true;
 }
 
@@ -215,6 +245,7 @@ void WebSocket::close() {
             c.want_close = true;                // the writer sends the close frame after the queue
         }
         c.qcv.notify_one();
+        c.wake_up();
     } else {
         state_ = State::Closing;
         c.abort();                              // still connecting: cancel the handshake
@@ -258,12 +289,46 @@ void WebSocket::worker(std::shared_ptr<Conn> cp, std::vector<WsUrl> urls) {
     std::string failures;
     std::string close_reason;
     bool opened = false;
+    WSADATA wsa;
+    const bool wsa_ok = WSAStartup(MAKEWORD(2, 2), &wsa) == 0;
 
-    c.set(c.session, WinHttpOpen(widen(o.user_agent).c_str(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                                 WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
-    HINTERNET session = c.get(c.session);
-    if (!session) failures = c.stop ? "cancelled" : "WinHttpOpen: " + error_text(GetLastError());
-    else WinHttpSetTimeouts(session, o.resolve_timeout_ms, o.connect_timeout_ms, o.send_timeout_ms, o.handshake_timeout_ms);
+    // our own transport first: it negotiates permessage-deflate, which WinHTTP refuses
+    for (std::size_t ui = 0; wsa_ok && ui < urls.size() && !c.stop && !opened; ++ui) {
+        const WsUrl& u = urls[ui];
+        WinStream st(c.wake);
+        bool deflate = false;
+        std::string rest;
+        std::string why = st.open(c, u, o);
+        if (why.empty()) {
+            c.set_sock(st.handle());   // abort() shuts it down, which wakes a blocked send
+            why = ws_upgrade(c, st, u, o, deflate, rest);
+        }
+        if (why.empty()) {
+            opened = true;
+            state_ = State::Open;
+            push({Event::Kind::Opened, u.str(), false});
+            close_reason = ws_session(c, st, deflate, std::move(rest), o.max_message,
+                                      [this](std::string m) { push({Event::Kind::Message, std::move(m), false}); });
+            std::lock_guard<std::mutex> l(c.qmu);
+            c.writer_stop = true;
+        } else {
+            if (c.stop) why = "cancelled";
+            failures += (failures.empty() ? "" : "; ") + u.str() + ": " + why;
+        }
+        c.set_sock(INVALID_SOCKET);
+    }
+    // then WinHTTP, which also goes through the system proxy (uncompressed)
+    const bool own_opened = opened;
+    const std::string own_failures = std::move(failures);
+    failures.clear();
+    HINTERNET session = nullptr;
+    if (!opened && !c.stop) {
+        c.set(c.session, WinHttpOpen(widen(o.user_agent).c_str(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                     WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
+        session = c.get(c.session);
+        if (!session) failures = c.stop ? "cancelled" : "WinHttpOpen: " + error_text(GetLastError());
+        else WinHttpSetTimeouts(session, o.resolve_timeout_ms, o.connect_timeout_ms, o.send_timeout_ms, o.handshake_timeout_ms);
+    }
 
     for (std::size_t ui = 0; session && ui < urls.size() && !c.stop && !opened; ++ui) {
         const WsUrl& u = urls[ui];
@@ -311,7 +376,10 @@ void WebSocket::worker(std::shared_ptr<Conn> cp, std::vector<WsUrl> urls) {
         }
     }
 
-    if (opened) {
+    if (!own_failures.empty())
+        failures = own_failures + (failures.empty() ? std::string() : "; then through WinHTTP: " + failures);
+
+    if (opened && !own_opened) {
         HINTERNET ws = c.get(c.ws);
         // the writer: queued frames, then the close frame when asked
         std::thread writer([&c, ws] {
@@ -386,11 +454,12 @@ void WebSocket::worker(std::shared_ptr<Conn> cp, std::vector<WsUrl> urls) {
         c.qcv.notify_one();
         c.abort();          // unblocks a writer stuck in a send
         writer.join();
-    } else {
+    } else if (!opened) {
         close_reason = c.stop ? "closed" : "could not connect: " + failures;
     }
 
     c.abort();
+    if (wsa_ok) WSACleanup();
     state_ = State::Closed;
     {
         std::lock_guard<std::mutex> l(c.dmu);
