@@ -1033,7 +1033,7 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             else ui::status(dl, h, true, "Game data ready.",
                             ((gd.ready() ? "Ys Origin  \xE2\x80\xA2  " : "Development assets  \xE2\x80\xA2  ") +
                              std::string(gamedata::language(g_language)->name)).c_str());
-            ui::version(dl, w, h, "CleriaCore 0.1 (dev)");
+            ui::version(dl, w, h, "CleriaCore " CLERIA_VERSION);
             if (hit == 1) shell.open = true;
             else if (hit == 2) { shell.panel.select("Mods"); shell.open = true; }
             else if (hit == 3) choice_made = 2;   // Quit
