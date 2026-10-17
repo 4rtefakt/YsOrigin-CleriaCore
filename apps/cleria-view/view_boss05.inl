@@ -143,6 +143,14 @@ auto boss5_tick = [&] {
                 std::uint32_t& dt = boss5_dead_t[a.instance_id];
                 dt = a.alive() ? 0u : dt + 1u;
                 m.dead_t = dt;
+                // The handler's death burst (FUN_004ac470 0x4ac4f0..0x4ac6c0): on the first dead tick of a fight
+                // (g_flags[156]) with +0x130 & 0x2000, SE 11 and EF2 0x43 at the origin, rot (0, -pi/2, 0), scale 1.
+                if (dt == 1u && game.g_flags[156] != 0 && (a.flags130 & 0x2000u)) {
+                    sfx_at(11, a.pos, kSfxAnimVol);
+                    spawn_sim_fx(0x43, m.pos, {0.0f, -1.5707964f, 0.0f}, 1.0f, {}, 0, {});
+                    std::printf("  [boss05] t%llu summon #%d death burst (SE 11, effect 0x43)\n",
+                                (unsigned long long)tick_count, a.instance_id);
+                }
                 m.sub = a.ai.i(0x728); m.mode = a.ai.i(0x79c); m.target = a.ai.i(0x888);
                 mins.push_back(m);
             }

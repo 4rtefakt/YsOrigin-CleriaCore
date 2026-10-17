@@ -8,7 +8,7 @@
 // +0x814 (1/20 a tick) and forces run mode while the idle section shows; mode 0 hops (5%) near a swinging
 // player; mode 1 lunges (10%, within 3 u of the player after 100 ticks): section 7, and at its Marker 1 a leap
 // at the target on knock channel 1 (pd / 13 x 2.5).
-// [not modelled] the handler's death burst (SE 11 + EF2 67 when +0x130 & 0x2000).
+// The handler's death burst (SE 11 + EF2 67 when +0x130 & 0x2000) is the host's (view_boss05.inl).
 #include <algorithm>
 #include <cmath>
 
