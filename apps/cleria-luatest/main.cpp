@@ -1185,6 +1185,31 @@ int main(int argc, char** argv) {
         }
         check(closed, "net: nothing listening -> a close event with error (non-blocking poll)");
     }
+    {   // a closed websocket frees its place at once (a reconnect loop that drops it never reaches the limit)
+        auto m = make(h, tmp, "netr", R"LUA(
+            local socks, made = {}, 0
+            for i = 1, 4 do socks[i] = cleria.net.websocket() socks[i]:open("127.0.0.1:1") end
+            cleria.events.on("tick", function()
+                local closed = 0
+                for i = 1, 4 do socks[i]:poll() if socks[i]:state() == "closed" then closed = closed + 1 end end
+                if closed < 4 or made > 0 then return end
+                made = 1
+                local fresh = {}
+                for i = 1, 4 do fresh[i] = cleria.net.websocket() end
+                local fifth = pcall(cleria.net.websocket)
+                local reopen = pcall(function() socks[1]:open("127.0.0.1:1") end)
+                fresh[1]:open("127.0.0.1:1") fresh[1]:close()
+                cleria.log("reuse " .. tostring(fifth) .. " " .. tostring(reopen))
+            end)
+        )LUA");
+        bool done = false;
+        for (int i = 0; i < 400 && !done; ++i) {
+            m->on_tick();
+            done = has(h.logs, "reuse ");
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        check(m->ok() && has(h.logs, "reuse false false"), "net: closed websockets free their place, a reopen takes one (" + m->error() + ")");
+    }
 
     // ---- 5. the manifest and the samples ----
     {

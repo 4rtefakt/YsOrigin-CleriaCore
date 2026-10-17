@@ -1040,9 +1040,19 @@ WsUd& ws_check(lua_State* L) {
     if (!u->ws) luaL_error(L, "the websocket was closed for good");
     return *u;
 }
+// The websockets of a mod that hold a place: all but the closed ones, so a mod that drops a closed socket and makes
+// a new one (a reconnect loop) never waits on the garbage collector for its place.
+int live_websockets(const Mod& m, const void* except = nullptr) {
+    int n = 0;
+    for (void* s : m.sockets_) {
+        const WsUd* u = static_cast<const WsUd*>(s);
+        if (s != except && u->ws && u->ws->state() != net::WebSocket::State::Closed) ++n;
+    }
+    return n;
+}
 int l_ws_new(lua_State* L) {
     Mod& m = M(L);
-    if (int(m.sockets_.size()) >= m.limits().websockets)
+    if (live_websockets(m) >= m.limits().websockets)
         return luaL_error(L, "a mod may keep at most %d websockets", m.limits().websockets);
     WsUd* u = static_cast<WsUd*>(lua_newuserdatauv(L, sizeof(WsUd), 0));
     new (u) WsUd{};
@@ -1076,6 +1086,8 @@ int l_ws_open(lua_State* L) {
         lua_pushstring(L, "not a websocket address");
         return 2;
     }
+    if (live_websockets(M(L), &u) >= M(L).limits().websockets)   // a closed socket opened again takes a place back
+        return luaL_error(L, "a mod may keep at most %d websockets", M(L).limits().websockets);
     u.ws->open(addr);
     lua_pushboolean(L, 1);
     return 1;
