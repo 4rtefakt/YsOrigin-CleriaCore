@@ -176,8 +176,8 @@ AiOut m590(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
             const float R = r + 0.2f;
             const float t = float(deg) * 3.14159f / 180.0f;
             if (e.world->ray(e.self, {std::cos(t) * R, 0, std::sin(t) * R}).hit) {
-                a.f(0x7cc) -= std::cos(t + 0.261799f);
-                a.f(0x7d0) -= std::sin(t + 0.261799f);
+                a.f(0x7cc) -= std::cos(t + 0.26179919f);
+                a.f(0x7d0) -= std::sin(t + 0.26179919f);
             }
         }
     }
