@@ -26,7 +26,7 @@
 // [not modelled] the roster's sweep of orphaned EF2 0x95 and the live 0xc7 count the 0x112
 // picks are capped by (taken as 0) — both read the effect pool; the puppet path's count test
 // and top-up (its Eyes run FUN_00470210); the specular flash of sub
-// 300; the barrier-expiry voice; sound preloads; +0x64 / +0x4be.
+// 300; sound preloads; +0x64 / +0x4be. The barrier-expiry voice stop is in (FUN_005ce3d0 = Se_Stop).
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -175,7 +175,8 @@ AiOut m810(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
             AiEffect pop{140, e.self, 1.0f, false};
             pop.knock = 0.0f;
             out.effects.push_back(pop);
-            out.sounds.push_back(0x99);                             // [not modelled] the voice
+            out.sounds.push_back(0x99);
+            if (e.world) e.world->stop_sound(gflag(e, 231, 0) != 0 ? 0x9d : 0x1ab, 10);   // FUN_005ce3d0(id, 10) [BYTES 0x4d7dfd..0x4d7e1f]
         }
     } else {
         A.guard399 = false;
