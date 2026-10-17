@@ -3,9 +3,23 @@
 // cast-0x1a actors (CAST_M220 Chryolos, boss-fight brain m220_boss): the host copies their fields into
 // Boss05Minion records (pool order) and back. Included after view_boss04.inl; boss5_tick runs in step_meshes,
 // view_boss05_hit.inl at the player's swing, boss5_target in the enemy env (the +0x888 target override).
-// The scene light is the module's (Boss05Output::light_dir / light_col). [not modelled] the camera preset (region
-// slot 3), the particle debris, the mesh tint / glare,
+// The scene light is the module's (Boss05Output::light_dir / light_col), the camera's slot 3 its preset
+// (g_boss05_cam_hook). [not modelled] the hook's distance fade of the effects 0xd3, the particle debris, the mesh
+// tint / glare,
 // the parts' contact hits.
+g_boss05_cam_hook = [&]() -> bool {
+    if (game.g_flags[156] == 0 || !boss5) return false;
+    const int k = g_rig.current();
+    if (k == 0) return true;                               // claimed, nothing written
+    if (k != 3) return false;
+    const Boss05Camera& c = boss5->camera();
+    CameraRegion& s = g_rig.edit_slot(3);
+    s.eye.fixed_pos = c.eye; s.target.fixed_pos = c.target;
+    s.eye.dist = c.dist; s.eye.pitch = c.pitch; s.fov = c.fov;
+    s.eye.mode = 0; s.target.mode = 0;
+    return true;
+};
+struct Boss5HookGuard { ~Boss5HookGuard() { g_boss05_cam_hook = nullptr; } } boss5_hook_guard;   // the hook captures this scope
 constexpr int kB5Owner = -0xB05;                           // fx owner tag for the booster auras / heals (handles)
 std::array<int, boss05::kSlots> boss5_slot{};              // slot -> the model's node index
 std::array<int, boss05::kSections> boss5_sect{};           // section -> the mesh's clip index

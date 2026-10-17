@@ -188,6 +188,17 @@ Boss05Output Boss05::tick(const Boss05Input& in, std::vector<Boss05Minion>& mini
         }
     }
     dist_ = std::sqrt(dx * dx + dz * dz);
+    {   // §5.3 the camera preset, from the player as the arena clamp left it [EXPORT 0052e2c0.c:237-269]
+        const Vec3 Pp = add(P_, out.player_move);
+        const float cx = Pp.x - pos_.x, cz = Pp.z - pos_.z;
+        const float d = std::sqrt(cx * cx + 0.0f + cz * cz);
+        const Vec3 n = nrm({cx, 0, cz});
+        cam_.eye = {n.x * 20.0f + Pp.x, (10.0f - d / 20.0f) + n.y * 20.0f, n.z * 20.0f + Pp.z};
+        cam_.target = {pos_.x, (40.0f - d) / 10.0f + pos_.y * 0.5f, pos_.z};
+        cam_.dist = 25.0f;
+        cam_.pitch = (d * 0.4f + 15.0f) * 0.017453292f;
+        cam_.fov = (d * 0.15f + 35.0f) * 0.017453292f;
+    }
     ++b4_;
     if (hp_ < 1.0f || in.flag224) { death(); in_ = nullptr; out_ = nullptr; mins_ = nullptr; return out; }
     if (bc_ < 700) { intro_hold(); in_ = nullptr; out_ = nullptr; mins_ = nullptr; return out; }
@@ -590,6 +601,7 @@ void Boss05::case_jump() {                                         // §C.3
         }
     }
     if (d4_ == 0) {
+        cam_.eye.y -= pos_.y * 0.3f;                               // the preset follows the jump [0052e2c0.c:1939-1943]
         if (b4_ == 300) {
             skew_ = RR(-0.2243995f, 0.2243995f);
             Boss05Effect& e = fx(384, {pos_.x + 8 * c, pos_.y + 0.2f, pos_.z + 8 * s});
@@ -614,6 +626,7 @@ void Boss05::case_jump() {                                         // §C.3
         }
         return;
     }
+    cam_.target.y -= pos_.y * 0.4f;                                // [0052e2c0.c:2042-2045]
     if (b4_ == 300) {                                              // the pounce
         speed(0.5f);
         skew_ = RR(-0.9424779f, 0.9424779f);
