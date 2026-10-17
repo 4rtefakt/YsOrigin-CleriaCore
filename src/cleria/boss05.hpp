@@ -17,7 +17,7 @@
 // fight's direction and the room's colour every frame, the intro's red, the booster's violet pulse, the pink hold after
 // UTIAGE, the reset at b4 500 [EXPORT 0052e2c0.c:185-208, 505-559, 876-902, 993-1021].
 // Tags: [BYTES]/[DATA]/[H] as the spec; [not modelled] engine behaviour left out: the death's light (the UTIAGE flash
-// and the fade, 0052e2c0.c:1614, 2155-2171), the camera preset (blk+0x1ac.., copied to region slot 3 by FUN_0042bb10), the particle emitter
+// and the fade, 0052e2c0.c:1614, 2155-2171), the particle emitter
 // FUN_00587010 (intro / death debris and its draws), the mesh tint and the glare texture, the parts' contact
 // hits (GoXx type 4, U2), the death's armour-break visuals timing beyond the effects, Hugo's scripted rounds'
 // cutscene side.
@@ -133,6 +133,10 @@ struct Boss05Output {
     std::optional<Vec3> light_dir, light_col;   // the scene light written this frame
 };
 
+// The camera preset blk+0x1ac.. (PICTIMOS.md §5.3) that FUN_0042bb10 copies into region slot 3 while it is current:
+// both points fixed, the eye's pitch / dist and the fov [EXPORT 0042bb10.c:107-119].
+struct Boss05Camera { Vec3 eye{}, target{}; float dist = 25.0f, pitch = 0, fov = 0; };
+
 struct Boss05Part { int slot = 0; float radius = 0, hp = 0, max_hp = 0, def = 0, resist[4] = {}; float dmg = 0; Vec3 centre{}; };
 
 class Boss05 {
@@ -156,6 +160,7 @@ public:
     int state() const { return d0_; }
     int frames() const { return b4_; }
     int booster() const { return d8_; }
+    const Boss05Camera& camera() const { return cam_; }
     int meter() const { return c8_; }
     int intro() const { return bc_; }
     int guts() const { return f8_; }
@@ -199,6 +204,7 @@ private:
     int ac_ = 0;                                  // 0xac round 2
     int b4_ = 0, b8_ = 0, bc_ = 0, c0_ = 0, c8_ = 0, cc_ = 0, d0_ = 0, d4_ = 0, d8_ = 0, dc_ = 650;
     Vec3 light_dir0_{0, -1, 0}, light_col0_{1, 1, 1};   // blk+0x188 / blk+0x1a0 (the room's light at the ctor)
+    Boss05Camera cam_{};                                 // blk+0x1ac..0x1e4
     void light_col(const Vec3& c) { out_->light_col = c; }
     std::array<int, 4> feet_{100, 100, 100, 100}; // 0xe4..0xf0
     int f4_ = 0, f8_ = 0, fc_ = 0;

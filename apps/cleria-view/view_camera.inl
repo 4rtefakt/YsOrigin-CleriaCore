@@ -102,6 +102,9 @@ static std::function<std::uint32_t()> g_cam_rng;   // the game's xorshift128 (th
 // is claimed (the region pick is skipped; also with slot 0 current). The game installs it (view_boss06.inl); true =
 // claimed.
 static std::function<bool()> g_boss06_cam_hook;
+// ... and its boss05 path [EXPORT 0042bb10.c:74-123]: while a fight is on and "boss05" has its block, slot 0 current
+// claims the step and slot 3 current is rewritten from Pictimos's preset (view_boss05.inl).
+static std::function<bool()> g_boss05_cam_hook;
 // ... and its boss07 path (build/boss_re/DALLES_CD1.md §3.2): while flag 156 and the GoMesh "boss07" has its block,
 // the hook FUN_0042c4f0 rewrites the current slot (1..5) and claims slots 0..4 (view_boss07.inl).
 static std::function<bool()> g_boss07_cam_hook;
@@ -124,6 +127,7 @@ static void update_camera(const Room& room, const Vec3& feet, float /*dt*/, bool
     if (!room.cam.ok()) { g_cam.on = false; return; }
     if (g_rig_room != room.name || !g_rig.ok()) { g_rig.reset(room.cam); g_rig_room = room.name; }
     if (snap) g_rig.hard_cut();
+    if (g_boss05_cam_hook && g_boss05_cam_hook()) g_rig.claim();
     if (g_boss06_cam_hook && g_boss06_cam_hook()) g_rig.claim();
     if (g_boss07_cam_hook && g_boss07_cam_hook()) g_rig.claim();
     if (g_boss08_cam_hook && g_boss08_cam_hook()) g_rig.claim();
