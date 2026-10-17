@@ -343,7 +343,8 @@ public:
     // def / resist) [AB §B.2]: refused when the part's own pool < 1; part+0x134 += dmg (also 0); dmg <= 0 = the
     // barrier clank (the engine plays SE 368); dmg > 0 drains the pool (floor 0). [not modelled] dmg' =
     // round(dmg * (1 + 0.1 * g_flag)) for the pool drain [DOC GELALDY G9], the boost gain and the hit particles.
-    Boss07Hit hit_part(int i, int dmg);
+    Boss07Hit hit_part(int i, int dmg) { return hit_part(i, dmg, dmg); }
+    Boss07Hit hit_part(int i, int dmg, int dmg_hp);   // dmg_hp: the element bonus on the pool (the host's)
 
     // FUN_0042c4f0(obj, &slot) [CD1 §3.2]: rec = the host's region-camera record of the CURRENT slot k.
     bool camera_hook(int k, Boss07CamRecord& rec);

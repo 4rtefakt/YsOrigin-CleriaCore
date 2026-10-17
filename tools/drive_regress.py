@@ -1740,7 +1740,7 @@ CASES.update({
     "dalles_fight": dict(
         room="S_70/S_7080/S_7080",
         env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
-        drive="3:opt=InfiniteMP=1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=1.25;8:tier=10;"
+        drive="3:opt=InfiniteMP=1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=1.0;8:tier=10;"
               "9:flag=205,1;10:saveload;11:flag=116,1;12:flag=117,1;13:flag=118,1;14:flag=182,3;15:flag=183,3;"
               "16:flag=184,3;17:bracelet=116;60:boss7;7800:quit",
         expect=["[boss07] Dalles: HP 2500 STR 255, parts DEF 255 pool 25000, options 1000",
@@ -1750,8 +1750,7 @@ CASES.update({
                 "the Skill button (bracelet 0x74", "(class 0): ",
                 "phase 1 (max HP 3750)", "impact 404", "a pillar bullet", "barrier W broken (window 599)",
                 "target the core with the sword", "the window closed", "barrier F up",
-                "(class 3): 0 dmg (clank), barrier 3",
-                "the Skill 3 key (bracelet 0x76 for barrier 3)", "(class 1): ", "bullet kind 0x2 effect 403",
+                "the Skill 3 key (bracelet 0x76 for barrier 3)", "(class 3): 0 dmg (clank), barrier 3", "(class 1): ", "bullet kind 0x2 effect 403",
                 "barrier F broken (window 599)", "barrier E up", "the Skill 2 key (bracelet 0x75 for barrier 2)",
                 "(class 2): ", "bullet kind 0x4 effect 400", "barrier E broken (window 599)", "CamSlot 4",
                 # Re-pinned with the W attack's fix (issue #66): effect 402's delayed root em9 no longer fires an
@@ -1782,11 +1781,14 @@ CASES.update({
                 # every beat is here: the clank is now refused on barrier F (W falls to the skill first), the dark
                 # barrier falls twice with both options (t3178, t3820), the capture circle comes with the options
                 # revived (t4202; the other dimension t4750..5312), it falls once more and the death is at t6420.
+                # Re-pinned 2026-10-17 again (the parts' FUN_004faf20 tail: the elemental effect, the element bonus on
+                # the pool, the hit spark): at 1.25 the fight ended at t4830 without the capture; at 1.0 every beat is
+                # here — the dark barrier falls with both options (t3755), the capture comes with them revived
+                # (t4462; the other dimension t4671..5233), it falls twice more and the death is at t6651.
                 "barrier D up", "phase 2 (max HP 4250)", "target option", "option R destroyed",
                 "bullet kind 0x25 effect 54", "CamSlot 3", "barrier D broken (window 699)", "option L destroyed",
                 "target the core with the sword", "barrier D up", "option R revived (1000)", "option L revived (1000)",
-                "option R destroyed", "barrier D broken (window 699)", "option L destroyed", "barrier D up",
-                "option R revived (1000)", "option L revived (1000)", "clip SIS_LAZER_START", "the capture circle at",
+                "clip SIS_LAZER_START", "the capture circle at",
                 "the player is captured", "CamSlot 5", "every particle removed", "mode 0 -> 4", "clip KIAI_START",
                 "the player is pinned at (0.0,495.0,-5.0)", "clip METEOR", "the player is returned to (0.0,7.5,-15.0)",
                 "mode 4 -> 0", "barrier D broken (window 699)",

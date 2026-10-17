@@ -299,10 +299,16 @@ auto boss7_hit = [&](const HitShape& vol, std::uint32_t token, int rehit, float 
         mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
         const int dmg = lua_part_damage(enemy_incoming_damage(a, cls, vd, mods, [&](float pct) { return float(rng_pct(rng)) < pct; }), a, vd.def, cls);   // the shell's Cheats, the Lua mods' filter
-        const Boss07Hit r = boss7->hit_part(pi, dmg);      // the pool gate, part+0x134 += dmg, the pool drain
+        // The common tail after the type switch [EXPORT 004faf20.c:303-448] runs for type 6 too, the parts' +0x138
+        // being 0 (DALLES_AB §B.2): the elemental effect and the element bonus on the pool, the hit spark, SE 0x5c /
+        // 0x5d and the white number. A dry pool (the 0x4faf67 gate) returns before any of it.
+        const bool dry = 1.0f > bp.pool;
+        const int dmg_hp = dry ? dmg : part_element(bp.pos, false, dmg, cls);
+        const Boss07Hit r = boss7->hit_part(pi, dmg, dmg_hp);   // the pool gate, part+0x134 += dmg, the pool drain
         if (r != Boss07Hit::kRefused) {
             any = true;
             if (r == Boss07Hit::kClank) audio.play(368, kSfxAnimVol);   // case 6, dmg <= 0: FUN_0043a040(0x170)
+            part_hit_feedback(bp.pos, false, dmg, cls);
         }
         if (boss7_log || std::getenv("CLERIA_DMG"))
             std::printf("  [boss07] t%llu %s hits part %d (class %d): %d dmg%s, barrier %d hits %u, hp %.0f, options %.0f/%.0f\n",
