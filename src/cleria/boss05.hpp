@@ -134,7 +134,8 @@ public:
     explicit Boss05(const Boss05Setup& s);
     Boss05Output tick(const Boss05Input& in, std::vector<Boss05Minion>& minions);
 
-    void add_part_damage(int i, float dmg);       // FUN_004faf20: +0x134 += dmg, the part's pool HP -= dmg
+    void add_part_damage(int i, float dmg) { add_part_damage(i, dmg, dmg); }
+    void add_part_damage(int i, float dmg, float dmg_hp);   // FUN_004faf20: +0x134 += dmg, the part's pool HP -= dmg_hp
     bool part_hittable(int i) const;
     const Boss05Part& part(int i) const { return parts_[std::size_t(i)]; }
 
