@@ -184,7 +184,7 @@ AiOut m390(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     int f = a.i(0x730);
     if (f == 100 || (f == 200 && !(P < 1.3f))) {
         a.action() = 1; a.dur() = 60; a.steer() = 1; a.cool() = 60;
-        const Vec3 at{e.self.x, e.self.y - e.height, e.self.z};
+        const Vec3 at{e.self.x, e.self.y - 0.5f, e.self.z};   // FUN_00451c20(.., (0, -0.5, 0), .., 2)
         out.effects.push_back({0x10e, at, 1.0f, true});            // enemy\m_230_taiki
         out.effects.push_back({0x10d, at, 1.3f, true});            // enemy\z_warp
         out.sounds.push_back(0x1d0);                               // zako\z_390_run (warp)
