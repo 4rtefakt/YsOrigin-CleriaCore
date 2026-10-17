@@ -10,7 +10,7 @@
 #include <set>
 #include <system_error>
 
-#include "cleria/settings.hpp"   // Ini: the same dialect as cleria.ini
+#include "cleria/ini.hpp"   // Ini: the same dialect as cleria.ini
 #include "miniz.h"
 
 namespace fs = std::filesystem;

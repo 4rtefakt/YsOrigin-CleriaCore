@@ -61,6 +61,19 @@ bool startup() { return true; }
 using socklen = socklen_t;
 #endif
 
+// A send to a peer that has gone is an error, not a SIGPIPE that ends the game (Linux: the flag; macOS: the option).
+#ifdef MSG_NOSIGNAL
+constexpr int kSendFlags = MSG_NOSIGNAL;
+#else
+constexpr int kSendFlags = 0;
+#endif
+void no_sigpipe([[maybe_unused]] sock_t s) {
+#ifdef SO_NOSIGPIPE
+    const int one = 1;
+    ::setsockopt(s, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
+#endif
+}
+
 sock_t S(std::intptr_t fd) { return sock_t(fd); }
 
 // An IPv4 address of a host: a dotted address at once, a name through the resolver (this waits).
@@ -196,6 +209,7 @@ void TcpSocket::connect(const std::string& host, int port, int timeout_ms) {
         else {
             // A non-blocking connect waited on with select, so the timeout is ours and not the system's.
             set_nonblocking(s, true);
+            no_sigpipe(s);
             const sockaddr_in a = addr_of(ip, port);
             int r = ::connect(s, reinterpret_cast<const sockaddr*>(&a), sizeof a);
             if (r != 0) {
@@ -254,7 +268,7 @@ bool TcpSocket::send(const std::string& data) {
     if (state_ != State::Open || out_.size() + data.size() > (16u << 20)) return false;
     out_ += data;
     while (!out_.empty()) {                          // what the socket takes now; the rest (or an error) is poll()'s
-        const auto n = ::send(S(fd_), out_.data(), int(std::min<std::size_t>(out_.size(), 1u << 16)), 0);
+        const auto n = ::send(S(fd_), out_.data(), int(std::min<std::size_t>(out_.size(), 1u << 16)), kSendFlags);
         if (n <= 0) break;
         out_.erase(0, std::size_t(n));
     }
@@ -305,6 +319,7 @@ std::vector<TcpSocket::Event> TcpSocket::poll() {
             const sock_t c = ::accept(S(fd_), reinterpret_cast<sockaddr*>(&from), &fl);
             if (c == kBad) break;
             set_nonblocking(c, true);
+            no_sigpipe(c);
             Event e;
             e.kind = Event::Kind::Accepted;
             e.text = name_of(from) + ":" + std::to_string(int(ntohs(from.sin_port)));
@@ -317,7 +332,7 @@ std::vector<TcpSocket::Event> TcpSocket::poll() {
     }
     if (state_ != State::Open) return ev;
     while (!out_.empty()) {                          // what the socket takes now; the rest waits for the next poll
-        const auto n = ::send(S(fd_), out_.data(), int(std::min<std::size_t>(out_.size(), 1u << 16)), 0);
+        const auto n = ::send(S(fd_), out_.data(), int(std::min<std::size_t>(out_.size(), 1u << 16)), kSendFlags);
         if (n > 0) { out_.erase(0, std::size_t(n)); continue; }
         if (!would_block()) { fail(ev, last_error(), true); return ev; }
         break;
@@ -347,7 +362,7 @@ void TcpSocket::close() {
     if (fd_ != kNone) {
         if (state_ == State::Open && !out_.empty()) {   // a last try for what is still queued (a "bye" before close)
             set_nonblocking(S(fd_), true);
-            ::send(S(fd_), out_.data(), int(std::min<std::size_t>(out_.size(), 1u << 16)), 0);
+            ::send(S(fd_), out_.data(), int(std::min<std::size_t>(out_.size(), 1u << 16)), kSendFlags);
         }
         close_fd(S(fd_));
     }

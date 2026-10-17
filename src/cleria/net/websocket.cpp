@@ -322,7 +322,12 @@ void WebSocket::worker(std::shared_ptr<Conn> cp, std::vector<WsUrl> urls) {
     const std::string own_failures = std::move(failures);
     failures.clear();
     HINTERNET session = nullptr;
-    if (!opened && !c.stop) {
+    // A loopback server never goes through a proxy, so WinHTTP would only fail the same way, a second refused
+    // connect later (Windows retries a refused one for about 2 s).
+    const bool loopback = std::all_of(urls.begin(), urls.end(), [](const WsUrl& u) {
+        return u.host == "localhost" || u.host == "::1" || u.host.rfind("127.", 0) == 0;
+    });
+    if (!opened && !c.stop && !loopback) {
         c.set(c.session, WinHttpOpen(widen(o.user_agent).c_str(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                                      WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
         session = c.get(c.session);

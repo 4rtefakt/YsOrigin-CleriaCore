@@ -552,18 +552,13 @@ struct Hud {
     void player_hud(const Player& p, float sw, float sh) {
         const HudMap m{std::uint32_t(sw), std::uint32_t(sh)};
 
-        // Advance the HP damage-lag (H3). Heal snaps the lag up to cur instantly (no red on
-        // heal); damage lets cur drop and the lag decays down toward it, per tick. coeff ~1
-        // is [UNKNOWN] — CLERIA_HPLAG scales the visible catch-up speed (default 0.05 so the
-        // trail is watchable; the traced form is 0.2 * coeff * max).
-        if (p.hp_lag < float(p.hp)) p.hp_lag = float(p.hp);
-        else if (p.hp_lag > float(p.hp)) {
-            static const float k = [] {
-                if (const char* e = std::getenv("CLERIA_HPLAG")) { float v = std::atof(e); if (v > 0) return v; }
-                return 0.006f;  // ~0.5 HP/frame at max 400 -> a big hit's trail drains over ~1s
-            }();
-            p.hp_lag -= 0.2f * k * float(p.max_hp);
-            if (p.hp_lag < float(p.hp)) p.hp_lag = float(p.hp);
+        // Advance the HP damage-lag (H3, FUN_0043a540 0x43a663..0x43a688): the lag moves toward cur by
+        // widget+0x2c x max x 0.2 a tick, down after a hit and up after a heal, and snaps when it passes it.
+        // +0x2c is the .data 0.02 at 0x6d5f1c (yso HUD_HP_BARS.md §2): 0.4 % of the bar a tick.
+        if (p.hp_lag != float(p.hp)) {
+            const float step = 0.02f * float(p.max_hp) * 0.2f;
+            if (p.hp_lag <= float(p.hp)) { p.hp_lag += step; if (p.hp_lag > float(p.hp)) p.hp_lag = float(p.hp); }
+            else { p.hp_lag -= step; if (p.hp_lag < float(p.hp)) p.hp_lag = float(p.hp); }
         }
 
         // The four stacked 12px rows at x0=0 (y 620/632/644/656) are the buff / combo timer

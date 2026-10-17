@@ -21,8 +21,12 @@
                         for (int j = 0; j < 4; ++j)
                             p[j] = k == 4 ? row[2][j] : k == 5 ? row[3][j] - row[2][j]
                                  : row[3][j] + (k & 1 ? -1.0f : 1.0f) * row[k >> 1][j];
-                        const float n = std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
-                        if (n > 0.0f && (p[0] * q.x + p[1] * q.y + p[2] * q.z + p[3]) / n <= -r) return false;
+                        // FUN_005eca30's loop 0x5ece00: each plane x 1 / (a^2 + b^2 + c^2), no square root, so the
+                        // distance is the true one over the plane's length (GOXX_17_19.md U3).
+                        const float n2 = p[0] * p[0] + p[1] * p[1] + p[2] * p[2];
+                        if (n2 <= 0.0f) continue;
+                        const float s = 1.0f / n2;
+                        if ((p[0] * s) * q.x + (p[1] * s) * q.y + (p[2] * s) * q.z + p[3] * s <= -r) return false;
                     }
                     return true;
                 };

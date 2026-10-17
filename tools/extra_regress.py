@@ -196,12 +196,13 @@ def cases(clear_data):
                 "[video] bolts quads ", "chain hits boss01 part 1: ",
                 "t2114 chain: power -2.0, 0 hop(s) over 0 monster(s), delay 25, the ray (section 0x10c):"],
         absent=["chain hop", "[video] bolts quads 0"])
-    # ... and Khonsclard: from the arena's edge the one part in reach of the rule is the sunk body's (part 7).
+    # ... and Khonsclard: from the arena's edge the sunk body's part (7) is in reach of the rule, and since the frustum
+    # planes are scaled by 1 / |n|^2 (2026-10-17, GOXX_17_19.md U3) part 0 counts as on screen too: two parts.
     c["adol_napishtim_khonsclard"] = dict(
         room="S_40/S_4099/S_4099", char="0", env=dict(_X, CLERIA_TYPE="1"),
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;8:flag=117,1;12:flag=183,1;20:at=-2.8,23.3,0;21:bracelet=117;"
               "40:every=20,700,ok;730:at=0,16,0;735:mp=3000;740:skill+;742:skill-;860:quit",
-        expect=["t742 chain: power -15.0, 5 hop(s) over 0 monster(s), delay 25 (section 0x10c): [1 boss part(s)] boss04.7",
+        expect=["t742 chain: power -15.0, 5 hop(s) over 0 monster(s), delay 25 (section 0x10c): [2 boss part(s)] boss04.7 boss04.0",
                 "chain hits boss04 part 7: "],
         count={" chain: power": 2}, absent=["chain hop", "the ray"])
     # ADOL.md §13, the down thrust's landing effect (FUN_0046fba0): effect 0xc where Yunica's axe lands; none for Hugo.
