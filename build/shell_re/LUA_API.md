@@ -974,7 +974,9 @@ None of these calls waits on the network: poll the sockets from a `frame` or `ti
 - `http` options: `url` (`http://` or `https://`, required), `method` (GET, POST, PUT, PATCH, DELETE, HEAD), `body`,
   `headers` (a table), `timeout` (seconds, 15). The answer: `ok` (the exchange completed, whatever the status),
   `status`, `body` (cut at 8 MiB: `truncated`), `error`. Redirections are followed. At most 8 requests at once a mod.
-- A mod may keep 16 UDP / TCP sockets (the WebSockets count apart). A socket left to the garbage collector is closed.
+- A mod may keep 16 UDP / TCP sockets open (the WebSockets count apart). A closed socket frees its place at once and
+  takes one again when it is opened anew (`connect`, `listen`, `bind`, a `send` on an unbound UDP socket). A socket
+  left to the garbage collector is closed.
 - TCP is a stream: two `send`s may arrive as one `data` event or one as two. Prefix each message with its length, or
   end it with a newline. UDP keeps the datagram whole but may lose it, repeat it or deliver it out of order.
 - IPv4 only [H]. `bind` / `listen` on every address make Windows ask the player to allow the game through the firewall,
