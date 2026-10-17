@@ -303,6 +303,14 @@ CASES = {
                 # the module's ray alone, the line above: power 0, rtype 1.)
                 "eaten (2 so far)", "eaten (5 so far)",
                 "velagunder part 2 (STR 70 power 14.0 rtype 2"]),
+    # The RUN parts (3, 4, 15..20: +0x11c & 8) in the fight run FUN_004fe1a0, not FUN_004fd350 (VELAGUNDER.md U3):
+    # the knock-down (section 9, knock 0.1 + 1.2) and no HP. velagunder_attacks' course, to the first RUN contact.
+    "velagunder_run_no_hp": dict(
+        room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="15", CLERIA_BOSSLOG="1", CLERIA_DMG="1"),
+        drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
+              + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 2701, 12)) + "2710:quit",
+        expect=["clip RUN_", "[hurt] alt applier (no HP) section 256 -> 9 knock 1.30",
+                "velagunder part 18 (STR 70 power 0.0 rtype 3 r 1.25) player hp 139 -> 139"]),
     # The taunt (VELAGUNDER.md C10, §5.8: state 8, ACTION_01 — the player grounded on surface 5 (his wood body)
     # with the floor above 4.0, out of his reach). After the first stun is over (t2610: state 0, WAIT) Yunica is
     # put on the top of his right shoulder, on the hull as it is posed now (`at3`: the floor below (2.5, 14, 33),
@@ -793,6 +801,12 @@ CASES = {
         room="S_10/S_1002/S_1002",
         drive="20:drop=72;21:drop=74;22:drop=76;80:hudstate;90:evxx=5;91:hudstate;92:quit",
         expect=["str 0.5/1790 def 0.3/1791 mp 1.2/1792 full 1800", "EventXX(5)", "str 0.0/0 def 0.0/0 mp 0.0/0 full 1800"]),
+    # EventXX(8) (FUN_0058f210 case 8 [BYTES 0x58f7ce..0x58f843]) makes a GoXx heal object: +1 HP a sim tick from the
+    # next tick until the bar is full (60 HP a second), not the whole bar at once.
+    "evxx_heal": dict(
+        room="S_10/S_1002/S_1002",
+        drive="20:hp=10;30:evxx=8;30:stats;31:stats;32:stats;40:stats;80:stats;90:quit",
+        expect=["t30 EventXX(8)", "hp 10/60", "hp 11/60", "hp 12/60", "hp 20/60", "hp 60/60"]),
     # Issue #68: the sound FUN_00585ff0's tail plays at the pickup is p_takeitem (88) except for the Strength /
     # Defense / MP Drops, which play s_growup0 / 1 / 2 (7 / 13 / 14) [BYTES 0x586591, 0x5865f1, 0x586672]. All
     # are collected on their 51st tick (age > 50), at the pickup's own position.
@@ -1205,6 +1219,15 @@ CASES.update({
         # one bystander fewer walks into the swings. The kill of #60 and its revival are as before.
         expect=["[revive] #186 cast 60 hp 261 phase 1 7a0 0 gnd 1 t 0.000 y -4.00", "defeated 1", "stats exp 2 lv 1",
                 "cast 60 revived as #207 (section 10)"]),
+    # M560's re-bury (+0x38c, FUN_0045c490 [EXPORT 0045c490.c:121-160]): #60 chases Yunica out of the sand, she is put
+    # 22 away, it gives up past 20 (phase 1, surfaced on sand2: +0x7a0 2), sinks, and once its feet are 2.25 under the
+    # sand top the probe sets +0x38c and phase 1 buries it again (+0x7a0 0).
+    "karon_rebury": dict(
+        room="S_40/S_4004/S_4004", env=_F4,
+        drive="7:opt=InfiniteOxygen=1;9:opt=DamageTaken=0;20:at3=4.6,-1,12,90;100:every=12,200,near=#60;"
+              "320:at3=4.6,-1,34,0;1500:quit",
+        expect=["[revive] #60 cast 60 hp 261 phase 2 7a0 1", "[revive] #60 cast 60 hp 261 phase 1 7a0 2",
+                "[revive] #60 cast 60 hp 261 phase 1 7a0 0"]),
     # M570 Zarue summons its hands (M410) next to the player in S_4006; they appear and are removed.
     "zarue_summon": dict(
         room="S_40/S_4006/S_4006", env=_F4,
