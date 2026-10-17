@@ -8,6 +8,7 @@ Play your own copy of Ys Origin in any resolution and at any frame rate, on Wind
 mods, a speedrun timer and quality-of-life options the original never had.
 
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS-4c6ef5)
+[![Release](https://img.shields.io/github/v/release/4rtefakt/YsOrigin-CleriaCore?include_prereleases&label=release&color=e8590c)](https://github.com/4rtefakt/YsOrigin-CleriaCore/releases)
 ![Status](https://img.shields.io/badge/status-early%20access-orange)
 ![Mods](https://img.shields.io/badge/mods-Lua%20%C2%B7%20.cleriamod-2f9e44)
 ![Needs](https://img.shields.io/badge/needs-Ys%20Origin%20on%20Steam-1b2838?logo=steam)
@@ -21,8 +22,6 @@ CleriaCore is a fan-made engine for **Ys Origin** (Nihon Falcom, 2006), in the s
 Diablo and OpenRCT2 for RollerCoaster Tycoon. It reads the game files of the copy you own and plays them with
 code rewritten from scratch: the same rooms, monsters, bosses, menus and music, the same numbers, on a
 renderer and a shell made for today's PCs.
-
-It is not made, endorsed or supported by Nihon Falcom or XSEED, and it contains none of the game's files.
 
 ## ✨ Highlights
 
@@ -55,13 +54,14 @@ It is not made, endorsed or supported by Nihon Falcom or XSEED, and it contains 
 
 ## 🚀 Getting started
 
-> **CleriaCore is in early access.** The story is playable for all three characters; the post-game modes are
-> not in yet (see [What's missing](#-whats-missing)).
+> 🎉 **The whole story is playable** with Yunica, Hugo and Toal. The post-game modes are next on the
+> roadmap below.
 
 ### 📦 Download
 
-Get the package for your system from the newest release on the [Releases page](https://github.com/4rtefakt/YsOrigin-CleriaCore/releases).
-None of them contains any game files: CleriaCore uses your own copy of Ys Origin.
+Get the package for your system from the newest **v0.1.x** release on the
+[Releases page](https://github.com/4rtefakt/YsOrigin-CleriaCore/releases). CleriaCore uses your own copy of Ys
+Origin, so the download stays small.
 
 | System | Package | What to do |
 |---|---|---|
@@ -121,32 +121,32 @@ press, a hold, always or never.
 Mods made for CleriaCore also run in the original Steam game through
 **[CleriaOre](https://github.com/4rtefakt/CleriaOre)**, CleriaCore's mod loader for the retail game.
 
-## 🧭 What's missing
+## 🗺️ Roadmap
 
-CleriaCore is honest about what is not there yet:
+- **The post-game**: Time Attack, the Arena, the Bonus Shop and Adol's story.
+- **Ever closer to the original**: effects and numbers are matched to the retail game one by one.
+- **More Linux, Steam Deck and macOS testing**, so every platform plays as well as Windows.
 
-- **The post-game**: Time Attack, the Arena, the Bonus Shop and Adol are not playable yet.
-- **Small differences from the original** remain in places, from effects that are simplified to numbers
-  that are approximated. They are being tracked down one by one.
-- **Linux and macOS** builds work but are less tested than Windows.
-
-If you find something that behaves differently from the original game, please open an issue and say what
-you expected to see.
+Spotted something that plays differently from the original game? Please
+[open an issue](https://github.com/4rtefakt/YsOrigin-CleriaCore/issues) and say what you expected to see.
 
 ## 🔬 For the curious
 
 Everything CleriaCore knows about the game was worked out from the original program, function by function.
-That research lives in the **[yso](https://github.com/4rtefakt/yso)** repository: notes on every part of the
-game, its file formats, and how much of it is covered. Building, the code layout and the list of known
+The file formats are documented in [docs/formats](docs/formats). Building, the code layout and the list of known
 stand-ins are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## 🙏 Credits
 
-- **Ys Origin** is © Nihon Falcom Corporation, published in English by XSEED Games. Please buy it: CleriaCore
-  needs your copy to run.
 - Built on the reverse-engineering foundation of the
   [Ys Origin Archipelago](https://github.com/4rtefakt/ys-origin-archipelago) project (the archive cipher, the
   event script VM, the item and scene maps).
 - Libraries: [SDL3](https://libsdl.org), [wgpu-native](https://github.com/gfx-rs/wgpu-native),
   [Dear ImGui](https://github.com/ocornut/imgui), [Lua](https://www.lua.org),
-  [miniz](https://github.com/richgel999/miniz) and [stb_vorbis](https://github.com/nothings/stb).
+  [miniz](https://github.com/richgel999/miniz), [stb_vorbis](https://github.com/nothings/stb) and
+  [FFmpeg](https://ffmpeg.org).
+
+---
+
+<sub>Ys Origin is © Nihon Falcom Corporation, published in English by XSEED Games. CleriaCore is a fan project
+and ships no game files: you need your own copy of the game.</sub>
