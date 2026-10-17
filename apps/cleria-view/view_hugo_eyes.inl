@@ -8,7 +8,8 @@
 //   hugo_eyes_fire()      FUN_0046d6e0: section 7 (the eye's shot) on each free eye, on Hugo's attacks
 //   hugo_eye(a)           a player-owned eye (its bullets / effects are the player's side, class FUN_0046d650)
 //   hugo_eye_dead(e)      the handler's death branch (FUN_004780e0 + the ASO tick) for a dead eye
-// [not modelled] the eye SEs' Se_Stop (0x97 / 0x9c), the tints (+0x264..+0x274), the +0x248 / +0x144
+// The eye SEs' Se_Stop (0x97 / 0x9c, 10 ms) wherever an eye's effects are dropped [EXPORT 0046af60.c:385-404,
+// 668-687, 731-754]. [not modelled] the tints (+0x264..+0x274), the +0x248 / +0x144
 // ramps (and their Extra base, 180 for 60), the castinfo live counts.
 FamiliarHost fam;
 auto hugo_eye = [&](const Actor& a) {
@@ -61,10 +62,11 @@ auto hugo_eyes_tick = [&] {
     fam_refresh();
     Actor* pa = world.player();
     if (!pa) return;
+    auto eye_se_stop = [&] { audio.stop_se(0x97, 10); audio.stop_se(0x9c, 10); };   // Se_Stop's command, inlined
     auto kill_eye = [&](Actor& a) {
         a.hp = 0.0f;
         a.flags12c |= 0x80000000u; a.flags130 |= 0x1008u;
-        if (eye_section(a) != 5) { fxsim.kill_owned(a.instance_id, 0); fxsim.kill_owned(a.instance_id, 1); }
+        if (eye_section(a) != 5) { fxsim.kill_owned(a.instance_id, 0); fxsim.kill_owned(a.instance_id, 1); eye_se_stop(); }
         a.ai.i(0x88c) = 0; a.ai.i(0x890) = 0;
     };
     std::vector<Actor*> eyes;
@@ -143,6 +145,7 @@ auto hugo_eyes_tick = [&] {
             if (a.cast_id != 0xb0) continue;
             fxsim.kill_owned(a.instance_id, 0); fxsim.kill_owned(a.instance_id, 1);
             a.ai.i(0x88c) = 0; a.ai.i(0x890) = 0;
+            eye_se_stop();
             EnemyRender* er = eye_render(a);
             if (er && er->avm.ok() && er->avm.section() != 5 && er->avm.section() != 2) er->avm.set_section(2, true);
         }
@@ -153,6 +156,7 @@ auto hugo_eyes_tick = [&] {
             for (Actor* a : eyes) {
                 fxsim.kill_owned(a->instance_id, 0); fxsim.kill_owned(a->instance_id, 1);
                 a->ai.i(0x88c) = 0; a->ai.i(0x890) = 0;
+                eye_se_stop();
             }
         }
     }
