@@ -8650,11 +8650,16 @@ title_again:
                 }
             }
             // FUN_00462550: holding the powered Evil Ring (held 0x5e with count[93] == 1) is -9999 HP
-            // every tick unless the Blue Necklace (equip bit 0x20000) is on (KEY_ITEMS.md §3.6).
-            // [not modelled] its 9999 popup and effect.
+            // every tick unless the Blue Necklace (equip bit 0x20000) is on (KEY_ITEMS.md §3.6), with the purple 9999
+            // (FUN_004fae00, 0xffa000a0) and effect 0x20a on the player: side 0, scale 1, attached mode 2 at the camera
+            // yaw [BYTES 0x46298d..0x462bd8].
             if (inv.held == 0x5e && game.g_flags[93] == 1 && player.hp >= 1) {
                 (void)player_stats();                         // refreshes inv.equip_flags
-                if (!(inv.equip_flags & 0x20000u)) player.hp = std::max(0, player.hp - 9999);
+                if (!(inv.equip_flags & 0x20000u)) {
+                    player.hp = std::max(0, player.hp - 9999);
+                    damage_popup(9999, 0xa000a0, {feet.x, feet.y + kOriginH, feet.z});
+                    attach_to_player(spawn_sim_fx(0x20a, {}, {}, 1.0f, {}, 0, {}), {0.0f, 0.0f, 0.0f}, camera_yaw());
+                }
             }
             for (PendingDebris& pd : pending_debris)
                 if (--pd.ticks == 0) spawn_debris(pd.cast, pd.origin, *pd.ev);
