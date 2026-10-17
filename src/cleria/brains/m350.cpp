@@ -9,7 +9,7 @@
 // pitched at the target's depth), or 2.5% the swoop (section 8, 100 ticks: the hover drops
 // 0.2 a tick to 2.2 during marker 3 and climbs back from marker 5, fire puffs at
 // marker-dependent rates). Cooldown hold + (6 - d) x 15 + R%45. Durable in 8 on Hard+.
-// [not modelled] the attached second puff while marker 1; the s_4013 particle flag.
+// [not modelled] the s_4013 particle flag.
 #include <algorithm>
 #include <cmath>
 
@@ -139,6 +139,10 @@ AiOut m350(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                                   e.self.z + std::sin(yaw) * std::cos(pitch) * rr};
                         fx.power = -5.0f; fx.rtype = 1;
                         out.effects.push_back(fx);
+                        if (m == 1) {                              // effect 2: the same puff attached (mode 1, the
+                            fx.attach = true; fx.attach_full = true;   // world offset P - origin, M350.md PUFF())
+                            out.effects.push_back(fx);
+                        }
                     }
                     a.action() = m == 1 ? 2 : 1;
                     if (m == 3) {
