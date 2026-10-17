@@ -13,6 +13,7 @@ mods, a speedrun timer and quality-of-life options the original never had.
 ![Mods](https://img.shields.io/badge/mods-Lua%20%C2%B7%20.cleriamod-2f9e44)
 ![Needs](https://img.shields.io/badge/needs-Ys%20Origin%20on%20Steam-1b2838?logo=steam)
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-00599c?logo=cplusplus)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
 ![Yunica and her fellow knights at the foot of Darm Tower, drawn by CleriaCore](docs/images/play.jpg)
 
@@ -145,6 +146,11 @@ stand-ins are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
   [Dear ImGui](https://github.com/ocornut/imgui), [Lua](https://www.lua.org),
   [miniz](https://github.com/richgel999/miniz), [stb_vorbis](https://github.com/nothings/stb) and
   [FFmpeg](https://ffmpeg.org).
+
+## 📜 License
+
+CleriaCore is free software under the [GNU General Public License v3.0](LICENSE). The libraries it
+bundles keep their own licenses, listed in each package's `licenses/` folder.
 
 ---
 

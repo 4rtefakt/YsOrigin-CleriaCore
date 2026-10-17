@@ -18,6 +18,7 @@ import argparse
 import glob
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -27,8 +28,10 @@ import zipfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
 TP = os.path.join(ROOT, "third_party")
-LICENSES = {   # third_party file -> name in licenses/
-    "sdl3/LICENSE.txt": "SDL3.txt",
+LICENSES = {   # third_party file -> name in licenses/ (the first that exists of a tuple)
+    ("sdl3/LICENSE.txt", "sdl3/share/licenses/SDL3/LICENSE.txt"): "SDL3.txt",
+    "curl/COPYING": "curl.txt",
+    "ffmpeg/LICENSE-ffmpeg.txt": "FFmpeg-LGPL-2.1.txt",
     "imgui/LICENSE.txt": "Dear-ImGui.txt",
     "miniz/LICENSE": "miniz.txt",
     "fonts/OFL.txt": "Fira-Sans-OFL.txt",
@@ -47,10 +50,13 @@ def write_text(path, text, crlf=False):
 
 def copy_licenses(dest, extra=()):
     os.makedirs(dest, exist_ok=True)
-    for src, name in LICENSES.items():
-        p = os.path.join(TP, src)
-        if os.path.exists(p):
-            shutil.copy2(p, os.path.join(dest, name))
+    shutil.copy2(os.path.join(ROOT, "LICENSE"), os.path.join(dest, "CleriaCore-GPL-3.0.txt"))
+    for srcs, name in LICENSES.items():
+        for src in (srcs,) if isinstance(srcs, str) else srcs:
+            p = os.path.join(TP, src)
+            if os.path.exists(p):
+                shutil.copy2(p, os.path.join(dest, name))
+                break
     # wgpu-native (MIT / Apache-2.0) and Lua (MIT) ship no license file in their drops.
     write_text(os.path.join(dest, "wgpu-native.txt"),
                "wgpu-native is dual-licensed under the MIT and Apache 2.0 licenses.\n"
@@ -143,13 +149,31 @@ def linux(a):
             if path.startswith(mine):
                 sys.exit(f"{f}: {soname} still loads {path}")
     write_text(os.path.join(stage, "FIRST-RUN.txt"), first_run("linux", a.version))
-    ffmpeg_license = os.path.join(TP, "ffmpeg", "LICENSE-ffmpeg.txt")
-    copy_licenses(os.path.join(stage, "licenses"),
-                  [(ffmpeg_license, "FFmpeg-LGPL-2.1.txt")] if os.path.exists(ffmpeg_license) else [])
+    copy_licenses(os.path.join(stage, "licenses"))
     out = os.path.join(a.out, f"CleriaCore-{a.version}-linux-x64.tar.gz")
     with tarfile.open(out, "w:gz") as t:
         t.add(stage, "CleriaCore")
     return out
+
+
+def homebrew_licenses(frameworks, dest):
+    """The license files of the Homebrew formulae whose dylibs the app bundles (libcurl and its
+    dependencies): Homebrew installs a formula's LICENSE / COPYING / NOTICE files in its keg."""
+    brew = subprocess.check_output(["brew", "--prefix"], text=True).strip()
+    formulae = set()
+    for name in os.listdir(frameworks):
+        hits = glob.glob(os.path.join(brew, "opt", "*", "lib", name))
+        if hits:
+            formulae.add(hits[0].split(os.sep)[-3])
+    for f in sorted(formulae):
+        keg = os.path.realpath(os.path.join(brew, "opt", f))
+        files = [p for p in glob.glob(os.path.join(keg, "*"))
+                 if os.path.isfile(p) and re.match(r"(LICEN[CS]E|COPYING|NOTICE|COPYRIGHT)", os.path.basename(p), re.I)]
+        if not files:
+            sys.exit(f"no license file in the Homebrew keg of {f} ({keg})")
+        for p in files:
+            shutil.copy2(p, os.path.join(dest, f"{f}-{os.path.basename(p)}" + ("" if "." in os.path.basename(p) else ".txt")))
+    print("Homebrew licenses:", ", ".join(sorted(formulae)))
 
 
 def macos(a):
@@ -161,6 +185,7 @@ def macos(a):
         os.remove(z)
     write_text(os.path.join(stage, "FIRST-RUN.txt"), first_run("macos", a.version))
     copy_licenses(os.path.join(stage, "licenses"))   # beside the app: a file added inside breaks its signature
+    homebrew_licenses(os.path.join(stage, "CleriaCore.app", "Contents", "Frameworks"), os.path.join(stage, "licenses"))
     out = os.path.join(a.out, f"CleriaCore-{a.version}-macos-{platform.machine()}.zip")
     subprocess.check_call(["ditto", "-c", "-k", "--keepParent", stage, out])
     return out
