@@ -187,8 +187,12 @@
             // terrain ray from the owner's origin to sphere 0; on a hit with D.n < 0, two sparks along D reflected
             // (FUN_00589390: spread 15 deg, speed 0.06..0.205, width 0.11) and, once per locus (+0x16c), when the owner
             // faces the wall (|facing - atan2(n.z, n.x)| > 2.2619 rad, 0x6bd5e0) a bounce n x 0.09 on knock channel 1.
-            // [not modelled] the boss parts; the ray callback's SE 93 (FUN_00500ac0: a mesh object's class byte
-            // +0x28d >= 5 and the 300 / 72 ms timeGetTime gates).
+            // The ray (FUN_0041e420, set 0) calls back FUN_00500ac0 [BYTES 0x500ac0..0x500b2f] for each entry hit nearer than
+            // the nearest so far: on a boss mesh (type byte +0x28d >= 5: the names of FUN_00501a30, as boss7_seg_nb) at
+            // alpha >= 0.75 (0x6bd390), SE 0x5d at the hit point, unless a boss part was hit within 300 ms (0x74e7e4,
+            // boss_part_se_tick) or the last such SE is within 72 ms (0x7ddb8c); the ms are the drive's 50 / 3 a tick.
+            // [approx] "nearer than the nearest so far" is taken over the collision mesh's triangles before the object
+            // (the pool order), and the object flags +0x298 & 0x4060 are not kept. [not modelled] the boss parts.
             if (!loci.empty()) {
                 LocusSword::Owner lo;
                 lo.origin = {feet.x, feet.y + kOriginH, feet.z};   // +0x50
@@ -221,6 +225,27 @@
                     const std::uint32_t fi0 = std::uint32_t(loci[li].sword.frame_at_tick_start());
                     if (std::uint32_t(loci[li].sword.clank_lo()) <= fi0 && fi0 < std::uint32_t(loci[li].sword.clank_hi()) && wx.hit) {
                         const Vec3 O = lo.origin, S = sp[0].centre, D{S.x - O.x, S.y - O.y, S.z - O.z};
+                        {
+                            const RoomMesh& cm = phys_mesh(room);
+                            for (const RoomMesh::ObjRange& r : cm.object_ranges) {
+                                const std::string six = r.name.substr(0, 6);
+                                if (!(six == "boss02" || six == "boss06" || six == "boss08" || r.name == "boss01" ||
+                                      r.name == "boss03" || r.name == "boss04" || r.name == "boss05" || r.name == "boss07")) continue;
+                                const MeshObj* mo = meshes.find(r.name);
+                                if (mo && mo->alpha < 0.75f) continue;
+                                Vec3 bp{};
+                                if (!segment_hits_tris(cm, O, S, r.t0, r.t1, &bp)) continue;
+                                Vec3 ep{};
+                                if (r.t0 > 0 && segment_hits_tris(cm, O, bp, 0, r.t0, &ep)) continue;   // nearer before it
+                                if ((tick_count - boss_part_se_tick) * 50 / 3 > 300 && (tick_count - clank_se_tick) * 50 / 3 > 72) {
+                                    clank_se_tick = tick_count;
+                                    sfx_at(0x5d, bp, kSfxAnimVol);
+                                    if (dust_log)
+                                        std::printf("  [spark] t%llu clank SE 0x5d on %s at (%.2f, %.2f, %.2f)\n",
+                                                    (unsigned long long)tick_count, r.name.c_str(), bp.x, bp.y, bp.z);
+                                }
+                            }
+                        }
                         Vec3 hp{}, n{};
                         if (wx.hit(O, S, &hp, &n)) {
                             const float dn = D.x * n.x + D.y * n.y + D.z * n.z;

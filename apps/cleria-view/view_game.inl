@@ -5728,6 +5728,7 @@ title_again:
     // `part_atk` is the attacker's sphere while the swing / particle scan runs (null: no spark). [H] the victim
     // centre is the position the host passes. [not modelled] the blood splats of a part with +0x12c set (0x4fb4f6).
     std::uint64_t boss_part_se_tick = 0;
+    std::uint64_t clank_se_tick = 0;                      // [0x7ddb8c] the wall clank's boss-mesh SE (view_player_hit.inl)
     const HitShape* part_atk = nullptr;
     // FUN_004faf20 before the HP subtraction, for a hit of more than 0 on a part without armour (+0x138 clear)
     // [EXPORT 004faf20.c:330-395; BYTES 0x4fb69b..0x4fb799]: the attacker class's elemental hit effect
