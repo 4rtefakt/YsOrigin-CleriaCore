@@ -164,6 +164,7 @@ static void mods_ui_script(ModsUi& u) {
         if (eq == std::string::npos) continue;
         const std::string op = it.substr(0, eq), id = it.substr(eq + 1);
         if (op == "install") { modfile_install_ui(u, fs::path(id)); continue; }   // the tab's Install a mod file...
+        if (op == "drop") { modfile_dropped(id.c_str()); continue; }               // a file dropped on the window
         if (modget_ui_op(u, op, id)) continue;                                      // get / check / update / remove
         int i = -1;
         for (int k = 0; k < int(u.list.size()); ++k)
