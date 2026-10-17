@@ -53,11 +53,14 @@
                                 mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
                                 mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
                                 const int dmg = lua_part_damage(enemy_incoming_damage(a, p.hit.cls >= 0 ? p.hit.cls : kDamageClassNone, vd, mods, [&](float pct) { return float(rng_pct(rng)) < pct; }), a, vd.def, p.hit.cls >= 0 ? p.hit.cls : kDamageClassNone);
-                                if (dmg > 0) boss->add_part_damage(pi, float(dmg));
-                                boss_part_feedback(bp, dmg, p.hit.cls >= 0 ? p.hit.cls : kDamageClassNone);
+                                const int pcls = p.hit.cls >= 0 ? p.hit.cls : kDamageClassNone;
+                                const int dmg_hp = part_element(bp.pos, bp.armor, dmg, pcls);
+                                if (dmg > 0) boss->add_part_damage(pi, float(dmg), float(dmg_hp));
+                                boss_part_feedback(bp, dmg, pcls);
                                 if (std::getenv("CLERIA_DMG"))
-                                    std::printf("  fx %d hits boss part %d (DEF %.0f): %d dmg, HP %.0f stun %.0f\n",
-                                                p.fx ? p.fx->id : -1, pi, bp.def, dmg, boss->hp(), boss->stun_gauge());
+                                    std::printf("  fx %d hits boss part %d (DEF %.0f): %d dmg, HP %.0f stun %.0f part HP %.0f\n",
+                                                p.fx ? p.fx->id : -1, pi, bp.def, dmg, boss->hp(), boss->stun_gauge(),
+                                                boss->part(pi).hp);
                                 landed = true;
                             }
                         #include "view_fx_mode0.inl"     // the rest of the mode-0 scan for a particle (Hugo's shots)

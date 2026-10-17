@@ -200,10 +200,10 @@ Vec3 Boss01::flash_tint() const {
     return {f * 107.0f / 255.0f * 0.5f, f * 55.0f / 255.0f * 0.5f, f * 19.0f / 255.0f * 0.5f};
 }
 
-void Boss01::add_part_damage(int i, float dmg) {
+void Boss01::add_part_damage(int i, float dmg, float dmg_hp) {
     Boss01Part& p = parts_[std::size_t(i)];
     p.dmg += dmg;
-    p.hp -= dmg;
+    p.hp -= dmg_hp;
 }
 
 bool Boss01::part_hittable(int i) const {
