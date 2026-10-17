@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <cstring>
 
 #ifdef _WIN32
@@ -447,6 +448,12 @@ HttpResponse http_request(const HttpRequest& rq) {
     curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(c, CURLOPT_USERAGENT, "CleriaCore");
+#ifdef __APPLE__
+    // The libcurl CleriaCore.app carries is Homebrew's, whose CA file sits under /opt/homebrew: absent on a Mac
+    // without Homebrew, so every https:// request would fail. The system's bundle instead, unless one is asked for.
+    if (!std::getenv("SSL_CERT_FILE") && !std::getenv("CURL_CA_BUNDLE") && access("/etc/ssl/cert.pem", R_OK) == 0)
+        curl_easy_setopt(c, CURLOPT_CAINFO, "/etc/ssl/cert.pem");
+#endif
     curl_easy_setopt(c, CURLOPT_TIMEOUT_MS, long(std::clamp(rq.timeout_ms, 1000, 120000)));
     if (!rq.body.empty()) {
         curl_easy_setopt(c, CURLOPT_POSTFIELDS, rq.body.data());

@@ -88,12 +88,17 @@ The AP protocol is JSON. No third-party library is vendored; this one is about 6
   - "could not connect: wss://h:p/: TLS failure ...; ws://h:p/: cannot connect ..."
   - "connection lost: connection reset"
   - "server closed the connection (1000)"
-- **Not supported: permessage-deflate.** WinHTTP has no WebSocket extensions. [DOC] says clients
-  "should support per-message compression" and calls uncompressed connections deprecated; servers
-  still accept them. If AP ever requires compression, replace the transport with our own framing
-  over winsock plus SChannel, using miniz for raw deflate. `Client` does not change.
-- **Proxy**: `WINHTTP_ACCESS_TYPE_DEFAULT_PROXY` [H]. This is direct unless `netsh winhttp` sets a
-  proxy, and it avoids slow WPAD discovery.
+- **permessage-deflate** (RFC 7692): [DOC] says clients "should support per-message compression",
+  and MultiServer warns a client that connected without it. The upgrade and the frames are our own
+  (`websocket_frames.inl`): we offer the extension, inflate the server's compressed messages with
+  miniz (one inflater per connection, so server context takeover works), and send ours uncompressed.
+  Under it: winsock plus SChannel on Windows, libcurl's raw connection (`CONNECT_ONLY`) elsewhere.
+  WinHTTP's WebSocket cannot be used for this: its upgrade fails (`ERROR_WINHTTP_INVALID_SERVER_RESPONSE`)
+  as soon as the server accepts an extension.
+- **Proxy**: on Windows, when no candidate URL opens directly, the same URLs are tried again through
+  WinHTTP's WebSocket (`WINHTTP_ACCESS_TYPE_DEFAULT_PROXY` [H], uncompressed). This is direct unless
+  `netsh winhttp` sets a proxy, and it avoids slow WPAD discovery. libcurl uses its usual proxy
+  settings, tunnelling with CONNECT.
 
 ## 3. Protocol (`ap::Client`), a pure state machine
 
@@ -412,7 +417,6 @@ chest keeps its vanilla item; the grant filter must pass it through.
   `wss://archipelago.gg:443/` confirmed TLS through SChannel. The site answered `HTTP 200 instead of
   a WebSocket upgrade`, as expected: there is no room on that port.
   (`cleria-aptest --live <address>` repeats this check by hand.)
-- permessage-deflate (§2).
 - `CreateHints` / `UpdateHint` have no helpers; `send_packet()` covers them.
 
 ### 7.3 Retail-mod bugs, so they are not copied

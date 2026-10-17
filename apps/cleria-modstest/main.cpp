@@ -3,11 +3,13 @@
 // zip mods, the load order and its checks, and the vfs resolution order.
 // Usage: cleria-modstest [asset_root]   (writes only under %TEMP%; the asset root is only read)
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
 #include <vector>
 
+#include "cleria/modget.hpp"
 #include "cleria/mods.hpp"
 #include "cleria/vfs.hpp"
 #include "miniz.h"
@@ -282,6 +284,60 @@ int main(int argc, char** argv) {
         check(mods::active().empty() && mods::active_summary() == "none" && vfs::resolve(a) == a,
               "load: nothing enabled -> unmodded, every path the base file");
         vfs::reset();
+    }
+
+    // ---- Get mods: the list, GitHub addresses, a release's answer (modget.hpp; no network) ----
+    {
+        namespace get = mods::get;
+        const auto listed = get::parse_catalog(R"({"format": 1, "mods": [
+            {"id": "a.one", "name": "One", "author": "A", "description": "First.", "repo": "owner/one"},
+            {"id": "Bad Id", "name": "Bad", "repo": "owner/bad"},
+            {"id": "a.norepo", "name": "No repo", "repo": "not a repo"},
+            {"id": "a.two", "repo": "owner/two.git"}]})");
+        check(listed.size() == 2 && listed[0].id == "a.one" && listed[0].author == "A" && listed[0].repo == "owner/one" &&
+                  listed[1].name == "a.two",
+              "get: the list keeps entries with a valid id and repository (a missing name is the id)");
+        check(get::parse_catalog("not json").empty() && get::parse_catalog("{}").empty(), "get: an unreadable list is empty");
+        check(get::github_repo("https://github.com/4rtefakt/cleriacore-run-hud") == "4rtefakt/cleriacore-run-hud" &&
+                  get::github_repo("https://github.com/o/r.git") == "o/r" && get::github_repo("http://www.github.com/o/r/") == "o/r" &&
+                  get::github_repo("https://github.com/o/r/releases").empty() && get::github_repo("https://gitlab.com/o/r").empty(),
+              "get: a Website names a GitHub repository only as https://github.com/<owner>/<repo>");
+        const std::string rel = R"({"tag_name": "v1.10.0", "assets": [
+            {"name": "notes.txt", "browser_download_url": "https://x/notes.txt"},
+            {"name": "mod-1.10.0.cleriamod", "browser_download_url": "https://x/mod-1.10.0.cleriamod"}]})";
+        const auto r = get::pick_release(rel, "1.9.2", ".cleriamod");
+        check(r && r->version == "1.10.0" && r->file == "mod-1.10.0.cleriamod" && r->url == "https://x/mod-1.10.0.cleriamod",
+              "get: a newer release (v1.10.0 over 1.9.2) and its .cleriamod");
+        check(!get::pick_release(rel, "1.10", ".cleriamod") && !get::pick_release(rel, "2.0", ".cleriamod") &&
+                  !get::pick_release(rel, "1.0", ".exe") && !get::pick_release(R"({"tag_name": "1.1"})", "1.0", ".cleriamod"),
+              "get: no update when the release is not newer or has no such file");
+        // CLERIA_RELEASES: a release answered from a local folder, its file "downloaded" by a copy
+        const fs::path rd = tmp / "releases";
+        fs::create_directories(rd / "pkg");
+        make_zip(rd / "pkg" / "one-1.1.cleriamod", {{"mod.ini", manifest("a.one")}});
+        const std::string pkg = (rd / "pkg" / "one-1.1.cleriamod").generic_string();
+        put(rd / "owner" / "one.json", R"({"tag_name": "1.1", "assets": [{"name": "one-1.1.cleriamod", "browser_download_url": ")" +
+                                           pkg + R"("}]})");
+#ifdef _WIN32
+        _putenv_s("CLERIA_RELEASES", rd.string().c_str());
+#else
+        setenv("CLERIA_RELEASES", rd.string().c_str(), 1);
+#endif
+        bool failed = false;
+        const auto lr = get::latest_release("owner/one", "1.0", ".cleriamod", &failed);
+        const auto none = get::latest_release("owner/none", "0", ".cleriamod", &failed);
+        std::string why;
+        const fs::path got = tmp / "dl" / "one.cleriamod";
+        check(lr && lr->version == "1.1" && !none && !failed && get::download(lr->url, got, &why) &&
+                  slurp(got) == slurp(rd / "pkg" / "one-1.1.cleriamod"),
+              "get: CLERIA_RELEASES answers a repository's release and its download (tests)");
+#ifdef _WIN32
+        _putenv_s("CLERIA_RELEASES", "");
+#else
+        unsetenv("CLERIA_RELEASES");
+#endif
+        why.clear();
+        check(!get::download(pkg, got, &why) && why == "not a web address", "get: off tests, only http(s) addresses are downloaded");
     }
 
     // ---- the real asset root (read only): an override of a real game path ----

@@ -147,14 +147,16 @@ What a layer can do now:
   `fs::exists` on the base path (room sidecars SFO/SCM/SEF/SCT) does not see new names yet; those
   sites switch to `vfs::exists` when phase 2 needs new rooms.
 
-## 4. The Mods tab (F1 panel, also from the launcher's SETTINGS)
+## 4. The Mods tab (F1 panel, also from the launcher's SETTINGS and MODS)
 
 `apps/cleria-view/view_mods.inl`, registered with one line in `view_game.inl` (`mods_shell`). Mods never get a
 top-level tab of their own (SHELL_CORE.md §9, the tab policy): the tab has sub-pages instead.
 
 - **Status**: "N mods active" (what this session loaded), "Mods off", or "... restart to apply"
   (gold) when the saved choices differ from the loaded set.
-- **Installed mods**: one row per mod: its load-order number, name, version, a gear when its Lua
+- **Add and update**: **Get mods** (§4.1) and **Check for updates** / **Update <mod>** / **Update N mods**.
+- **Installed mods**: one row per mod: its load-order number, name, version (or `1.0.0 › 1.1.0` in gold when an
+  update was found, or its first error), a gear when its Lua
   script registered a page (settings), On / Off / Error / Stopped, and a chevron. **OK or a click
   opens the mod's page**; a click on the On / Off value toggles it in place (turning one on also
   turns `UseMods` on). Left / Right, or the two arrows on the row, move it up / down. The right pane
@@ -164,7 +166,8 @@ top-level tab of their own (SHELL_CORE.md §9, the tab policy): the tab has sub-
   return too), then the pages the mod's Lua script registered (`cleria.ui.page`, LUA_API.md §7), then
   **Mod**: Enabled (toggle), State (Running / Off / on or off after a restart / Error / Stopped), Load
   order (Left / Right move it), and **About**: version, author, website, id, source, files, script,
-  requirements, conflicts, errors, notes.
+  requirements, conflicts, errors, notes; then **Remove** (press twice). An **Update** section heads the page
+  when a newer release was found. The website row opens it in the browser (`SDL_OpenURL`).
 - **Content**: **Content additions** opens **Mods > Content additions** (CONTENT.md; once the F1
   "Content" tab): what the active content mods add, the mod items this save holds, recent events.
 - **Options**: Use mods (toggle), Open mods folder (`ShellExecuteW`; it creates the folder first;
@@ -173,8 +176,36 @@ top-level tab of their own (SHELL_CORE.md §9, the tab policy): the tab has sub-
 - A run without a settings file (headless tests) shows "Unavailable in this run" (and the Content row).
 - `CLERIA_SHELL_PAGE=Mods:<mod id>` / `Mods:content` (and the drive's `shell=Mods:<...>`, `shellback`)
   open a sub-page for headless captures (`drive_regress shell_subpages`).
-- `CLERIA_MODS_UI="toggle=<id>;up=<id>;down=<id>;install=<file>"`: the tab's own actions, applied once after
-  the startup load, for headless checks (they persist like clicks).
+- `CLERIA_MODS_UI="toggle=<id>;up=<id>;down=<id>;install=<file>;get=<id>;check=;update=<id>;remove=<id>"`: the
+  tab's own actions, applied once after the startup load, for headless checks (they persist like clicks).
+
+### 4.1 Getting mods: the list, updates, removal
+
+`src/cleria/modget.{hpp,cpp}` (the network side) and `apps/cleria-view/view_modget.inl` (the pages). [H] all of it.
+
+- **The list** is CleriaOre's `catalog/mods.json` (`4rtefakt/CleriaOre`, branch `main`, read from
+  raw.githubusercontent.com): one list for CleriaOre on Windows and CleriaCore everywhere, and a mod added to it
+  reaches every player with no new build. **Mods > Get mods** reads it when it first opens; each row says
+  Install, Installed or Update. Install asks the mod's repository for its latest release, downloads its
+  `.cleriamod` into `<temp>/CleriaCore/downloads`, checks it is the listed id (`inspect_package`), and installs
+  it like **Install a mod file...** (MODFILE.md: copied into the mods folder, turned on, loaded at the next start).
+- **Updates**: a mod's repository is its `Website` when that is `https://github.com/<owner>/<repo>`, else its
+  entry in the list. Its latest release (`api.github.com/repos/<repo>/releases/latest`) is an update when its tag
+  (`v1.2.0` or `1.2.0`) is a newer version (`compare_versions`) and it carries a `.cleriamod`. The check runs
+  once when the Mods tab first opens (when a mod is installed) and on **Check for updates**. An update keeps the
+  mod on or off as it was; its settings and save data are untouched (they live outside the package).
+  Anonymous GitHub API calls are limited to 60 an hour per address: one check costs one call per mod.
+- **Remove** moves the mod's file or folder to the Recycle Bin (Windows, `SHFileOperationW`), the Trash
+  (macOS `~/.Trash`; Linux the freedesktop.org Trash with its `.trashinfo`), else `<mods>/.removed/`. A folder
+  mod the session loaded cannot be removed until it is turned off and CleriaCore restarted (its files may still
+  be read); a zip mod runs from its extraction in `.cache`, so it can.
+- The network: WinHTTP on Windows, libcurl elsewhere (`CLERIA_CURL`, on in CI's Linux and macOS builds). A build
+  without it says so on Get mods and greys out the update button.
+- Every network step runs on a worker thread; the next frame installs what finished (the list and the
+  settings are the UI thread's). A `CLERIA_DRIVE` run does each step at once, in order.
+- Tests without the network: `CLERIA_CATALOG=<mods.json>`; `CLERIA_RELEASES=<dir>` answers a repository's latest
+  release from `<dir>/<owner>/<repo>.json`, whose asset addresses may be local files (`cleria-modstest`). A
+  drive run's Remove deletes instead of filling the real Trash (`CLERIA_MODS_UI_TRASH=1` uses the Trash).
 
 ## 5. API for other features
 
@@ -425,8 +456,8 @@ modder's guide is `samples/mods/README.md`.
 - [H] choices: the mods folder location, new mods disabled, "lower wins", restart-to-apply, zip
   extraction to a cache, the 0x100.. range for new item ids, the sidecar save.
 - [not modelled] live re-mount without restart; mod-added room sidecar files (`fs::exists`
-  sites, §3); a `font` mount for `yso_ins04.dat`; mod preview images in the tab; the Mods tab
-  cannot delete mods (by design: the folder is opened instead; installing is MODFILE.md).
+  sites, §3); a `font` mount for `yso_ins04.dat`; mod preview images in the tab; CleriaCore's own
+  update (its repository is private, so its releases cannot be asked anonymously).
 - The retail game has no mod system; nothing here is RE'd behaviour, all of it is CleriaCore's.
 
 ## 12. Phase-2 task list (for the next agent)

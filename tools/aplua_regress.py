@@ -19,12 +19,15 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MOD = "ysorigin.archipelago"
 P = "[lua:%s] " % MOD
 CHEST = "10:kill1;420:obj=box_01;430:act"       # the S_1001 chest behind the barrier (ap_chest's route)
+# The login done (the hint list read is its last step): the cases start from here, however long the server takes.
+# Each step that waits on the server holds the drive on the line the mod logs for it (waitlog=, view_lua.inl).
+L = "1:waitlog=hints:;"
 
 CASES = {
     # A check: the S_1001 chest holds another world's item (ap_chest).
     "aplua_chest": dict(
         room="S_10/S_1001/S_1001", aplua={},
-        drive=CHEST + ";740:ok;760:lua=apflag 0x59;770:lua=apflag 302;780:lua=apstate;790:quit",
+        drive=L + CHEST + ";740:ok;741:waitlog=print ItemSend;760:lua=apflag 0x59;770:lua=apflag 302;780:lua=apstate;790:quit",
         expect=["[lua] Archipelago: started (main.lua)", P + "connected as Yunica (slot 2) seed CLERIATEST, 305 locations",
                 P + "save stamped: seed CLERIATEST slot 2", "[content] icon 0x59 -> 0x2A1",
                 P + "suppressed g_flags[0x59] -1 -> 1 (S_1001/S_BOX01)", P + "check 5857605 Wailing Blue: 2F Path 1 (store)",
@@ -36,8 +39,9 @@ CASES = {
     # Receiving, a save between two grants, a load of that save: no double grant (ap_items_save).
     "aplua_items_save": dict(
         room="S_10/S_1001/S_1001", aplua={},
-        drive="60:lua=apsay !give Celcetan Panacea;100:lua=apflag 0x59;120:csave=2;130:lua=apsay !give Celcetan Panacea;"
-              "170:lua=apflag 0x59;200:cload=2;260:lua=apflag 0x59;265:lua=apstate;270:quit",
+        drive=L + "60:lua=apsay !give Celcetan Panacea;61:waitlog=Celcetan Panacea: g_flags;100:lua=apflag 0x59;120:csave=2;"
+              "130:lua=apsay !give Celcetan Panacea;131:waitlog=Celcetan Panacea: g_flags;170:lua=apflag 0x59;200:cload=2;"
+              "201:waitlog=Celcetan Panacea: g_flags;260:lua=apflag 0x59;265:lua=apstate;270:quit",
         expect=["Celcetan Panacea: g_flags[0x59] -1 -> 1 (from Clicker)", P + "flag 0x59 = 1", "sidecar yso_02.cleria written",
                 "Celcetan Panacea: g_flags[0x59] 1 -> 2 (from Clicker)", P + "flag 0x59 = 2", "event load",
                 P + "loaded save: seed CLERIATEST applied 3", "Celcetan Panacea: g_flags[0x59] 1 -> 2 (from Clicker)",
@@ -48,15 +52,15 @@ CASES = {
     # gets `load`, so it grants the Panacea again. It used to read -1 with the mod's counter still advanced.
     "aplua_retry": dict(
         room="S_10/S_1009/S_1009", aplua={},
-        drive="150:lua=apsay !give Celcetan Panacea;190:lua=apflag 0x59;200:hp=0;360:ok;420:lua=apflag 0x59;"
-              "425:lua=apstate;430:quit",
+        drive=L + "150:lua=apsay !give Celcetan Panacea;151:waitlog=Celcetan Panacea: g_flags;190:lua=apflag 0x59;200:hp=0;"
+              "360:ok;361:waitlog=Celcetan Panacea: g_flags;420:lua=apflag 0x59;425:lua=apstate;430:quit",
         expect=["[cont] snapshot S_1009", "Celcetan Panacea: g_flags[0x59] -1 -> 1 (from Clicker)", P + "flag 0x59 = 1",
                 "[gameover] chose retry", "event load", "Celcetan Panacea: g_flags[0x59] -1 -> 1 (from Clicker)",
                 P + "flag 0x59 = 1", "applied 3/3"]),
     # DeathLink both ways (ap_deathlink).
     "aplua_deathlink": dict(
         room="S_10/S_1009/S_1009", aplua=dict(death_link=True),
-        drive="200:lua=apsay !death;360:ok;700:hp=0;760:lua=apstate;800:quit",
+        drive=L + "200:lua=apsay !death;201:waitlog=deathlink from;360:ok;700:hp=0;701:waitlog=deathlink sent;760:lua=apstate;800:quit",
         expect=[P + "deathlink from Clicker: Clicker pressed the button too hard.", "[death] HP 0",
                 "[gameover] chose retry", "[death] HP 0", P + "deathlink sent", "deathlink 1"],
         absent=["deathlink from Yunica"],
@@ -64,8 +68,8 @@ CASES = {
     # A statue unlock, two traps and the goal (ap_goal_traps).
     "aplua_goal_traps": dict(
         room="S_10/S_1009/S_1009", aplua={},
-        drive="60:lua=apsay !give 1F Warp;100:lua=apsay !give Blinding Fog;200:lua=apsay !give Chaos Warp;320:flag=226,1;"
-              "340:lua=apstate;400:quit",
+        drive=L + "60:lua=apsay !give 1F Warp;61:waitlog=1F Warp:;100:lua=apsay !give Blinding Fog;101:waitlog=Blinding Fog;"
+              "200:lua=apsay !give Chaos Warp;201:waitlog=chaos warp to;320:flag=226,1;321:waitlog=print Goal;340:lua=apstate;400:quit",
         expect=["1F Warp: statue S_1000 unlocked (warp 0)", "trap Blinding Fog", P + "chaos warp to S_1000", ">> entering S_1000",
                 P + "check 5857392 Explore: 1F Save (S_1000) (room)", P + "goal reached: StatusUpdate(Goal)", "goal 1"],
         absent=["Statue: 1F Save (S_1000) ("],
@@ -73,7 +77,7 @@ CASES = {
     # The save's seed guard (ap_seed_guard).
     "aplua_seed_guard": dict(
         room="S_10/S_1009/S_1009", aplua={},
-        drive="100:lua=apsay !reseed OTHERSEED;130:lua=apdisconnect;150:lua=apconnect;250:lua=apstate;260:quit",
+        drive=L + "100:lua=apsay !reseed OTHERSEED;101:waitlog=seed is now;130:lua=apdisconnect;150:lua=apconnect;151:waitlog=seed mismatch;250:lua=apstate;260:quit",
         expect=[P + "save stamped: seed CLERIATEST", P + "disconnected", P + "offline: rules of seed CLERIATEST",
                 P + "seed mismatch: the room is seed OTHERSEED; this save belongs to seed CLERIATEST",
                 "auth failed: this room runs a different seed than the save' seed CLERIATEST slot 2 applied 2/0 checks 2 goal 0 active 1"]),
@@ -90,76 +94,76 @@ CASES = {
     # (flag 414, the 5th) costs nothing: the script's -1 is refunded.
     "aplua_roda": dict(
         room="S_10/S_1001/S_1001", aplua=dict(slot_data=dict(roo_flags=[312, 339, 362, 388, 414, 458])),
-        drive="60:lua=apsay !give Roda Fruit;100:lua=apsay !give Roda Fruit;160:lua=apflag 0x57;"
+        drive=L + "60:lua=apsay !give Roda Fruit;100:lua=apsay !give Roda Fruit;101:waitlog=Roda Fruit #2;160:lua=apflag 0x57;"
               "170:flag=312,1;200:lua=apflag 0x57;210:flag=87,0;215:flag=414,1;240:lua=apflag 0x57;260:quit",
         expect=["Roda Fruit: Roda Fruit #1", "Roda Fruit: Roda Fruit #2", P + "flag 0x57 = 2",
                 P + "flag 0x57 = 1", P + "flag 0x57 = 1"]),
     # Random start: a new game in S_1001 is warped to the seed's start statue once.
     "aplua_random_start": dict(
         room="S_10/S_1001/S_1001", aplua=dict(slot_data=dict(random_start=True, start_statue_scene=1009)),
-        drive="300:lua=apstate;320:quit",
+        drive="1:waitlog=random start;300:lua=apstate;320:quit",
         expect=[P + "random start: warp to S_1009 (warp 1)", ">> entering S_1009"],
         absent=["not supported: Random start"]),
     # A vanilla weapon upgrade with no item behind it is clamped to what the seed granted; an ore raises it.
     "aplua_weapon_clamp": dict(
         room="S_10/S_1001/S_1001", aplua={},
-        drive="60:flag=148,4;120:lua=apflag 148;130:lua=apsay !give Cleria Ore;200:lua=apflag 148;"
+        drive=L + "60:flag=148,4;120:lua=apflag 148;130:lua=apsay !give Cleria Ore;131:waitlog=Cleria Ore #1;200:lua=apflag 148;"
               "210:flag=148,8;260:lua=apflag 148;280:quit",
         expect=[P + "flag 0x94 = 0", "Cleria Ore #1: weapon tier 1", P + "flag 0x94 = 1", P + "flag 0x94 = 1"]),
     # Boss checks on defeat: nothing at the door, the check when the fight's flag is set.
     "aplua_boss_on_kill": dict(
         room="S_10/S_1099/S_1099",
         aplua=dict(settings="BossOnKill=1\nShowRoom=1\nRoomSpoilers=1\nShowTracker=1\nTrackerMode=2\n"),
-        drive="120:lua=apstate;130:flag=220,1;200:lua=apstate;220:quit",
+        drive=L + "120:lua=apstate;130:flag=220,1;200:lua=apstate;220:quit",
         expect=["goal 0 active 1", "Boss: 5F Velagunder (S_1099) (", "goal 0 active 1"],   # (sweep), or (boss defeated) with API 4
         absent=["Boss: 5F Velagunder (S_1099) (room)"]),
     # The same room with the option off: the check at the door (and the overlays drawn every frame).
     "aplua_boss_on_entry": dict(
         room="S_10/S_1099/S_1099", aplua=dict(settings="ShowRoom=1\nShowTracker=1\n"),
-        drive="120:lua=apstate;140:quit",
+        drive=L + "120:lua=apstate;140:quit",
         expect=["Boss: 5F Velagunder (S_1099) (room)", "goal 0 active 1"],
         absent=["script stopped", "Mod stopped"]),
     # The mod's page drawn (every section, connected and in game) without a script error.
     "aplua_page": dict(
         room="S_10/S_1001/S_1001", aplua=dict(slot_data=dict(goal=1)),
-        drive="120:shell=Mods:ysorigin.archipelago;200:lua=apstate;220:quit",
+        drive=L + "120:shell=Mods:ysorigin.archipelago;200:lua=apstate;220:quit",
         expect=["goal 0 active 1"],
         absent=["script stopped", "Mod stopped", "attempt to"]),
     # An SP chest that is a location: the script's AddPlayerSP (not a grant the filter sees) is taken back.
     "aplua_sp_chest": dict(
         room="S_40/S_4015/S_4015", aplua={},
-        drive="10:kill1;300:lua=apsp;420:obj=box_01;430:act;740:ok;760:lua=apsp;780:quit",
+        drive=L + "2:waitlog=grant #1;10:kill1;300:lua=apsp;420:obj=box_01;430:act;740:ok;760:lua=apsp;780:quit",
         expect=[P + "sp = ", P + "SP chest: took back the vanilla 5000 SP (S_4015/S_BOX01)",
                 "Silent Sands: 15F Room (store)", P + "sp = "],
         absent=["sp = 5", "sp = 6"]),          # the wallet never shows the chest's 5000
     # Mod API 4. Autosave: a chest check, then the save to the book's No.08 (file 7) at the next safe tick.
     "aplua_autosave": dict(
         room="S_10/S_1001/S_1001", aplua={},
-        drive=CHEST + ";740:ok;1000:lua=apstate;1020:quit",
+        drive=L + CHEST + ";740:ok;741:waitlog=autosave: wrote;1000:lua=apstate;1020:quit",
         expect=[P + "check 5857605 Wailing Blue: 2F Path 1 (store)", "sidecar yso_07.cleria written",
                 P + "autosave: wrote No.08"]),
     # Mod API 4. The boss_defeated event sends the boss check when "Boss checks on defeat" is on.
     "aplua_boss_event": dict(
         room="S_10/S_1099/S_1099", aplua=dict(settings="BossOnKill=1\n"),
-        drive="130:flag=220,1;200:lua=apstate;220:quit",
+        drive=L + "130:flag=220,1;200:lua=apstate;220:quit",
         expect=["Boss: 5F Velagunder (S_1099) (boss defeated)"],
         absent=["Boss: 5F Velagunder (S_1099) (room)"]),
     # The 20F room's fight is its ward, flag 423.
     "aplua_ward_5080": dict(
         room="S_50/S_5080/S_5080", aplua=dict(settings="BossOnKill=1\n"),
-        drive="130:flag=423,1;200:lua=apstate;220:quit",
+        drive=L + "130:flag=423,1;200:lua=apstate;220:quit",
         expect=["(S_5080) (sweep)"],
         absent=["Boss: Boss Room (S_5080) (room)"]),
     # The key-item clamp and the skill-level cap.
     "aplua_invariants": dict(
         room="S_10/S_1001/S_1001", aplua={},
-        drive="60:flag=99,3;70:flag=184,5;120:lua=apflag 99;130:lua=apflag 184;150:quit",
+        drive=L + "60:flag=99,3;70:flag=184,5;120:lua=apflag 99;130:lua=apflag 184;150:quit",
         expect=[P + "flag 0x63 = 1", P + "flag 0xB8 = 3"]),
     # Hints: the slot's list is read at login (Get: empty) and followed (SetNotify): the server hints the
     # S_1001 chest, the SetReply brings the list; the mod's page then draws it without a script error.
     "aplua_hints": dict(
         room="S_10/S_1001/S_1001", aplua={},
-        drive="100:lua=apsay !hint Wailing Blue: 2F Path 1;200:shell=Mods:ysorigin.archipelago;260:lua=apstate;280:quit",
+        drive=L + "100:lua=apsay !hint Wailing Blue: 2F Path 1;101:waitlog=hints: 1;200:shell=Mods:ysorigin.archipelago;260:lua=apstate;280:quit",
         expect=[P + "hints: 0", P + "hints: 1", "goal 0 active 1"],
         absent=["script stopped", "Mod stopped", "attempt to"],
         server_expect=['Get {"cmd":"Get","keys":["_read_hints_0_2"]}', 'SetNotify {"cmd":"SetNotify","keys":["_read_hints_0_2"]}',
@@ -179,6 +183,8 @@ def start(case, env, settings_dir):
         args = [sys.executable, os.path.join(ROOT, "tools", "ap_mock_server.py"), "--port", "0"]
         if a.get("death_link"):
             args.append("--death-link")
+        if os.environ.get("APLUA_SERVER_DELAY"):   # every reply that many ms late: the cases must not depend on timing
+            args += ["--delay", os.environ["APLUA_SERVER_DELAY"]]
         if a.get("slot_data"):
             args += ["--slot-data", json.dumps(a["slot_data"])]
         srv = subprocess.Popen(args, stdout=subprocess.PIPE, text=True)

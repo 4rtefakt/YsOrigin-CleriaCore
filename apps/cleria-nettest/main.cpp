@@ -1,4 +1,4 @@
-// cleria-nettest — the WinHTTP WebSocket client (src/cleria/net/websocket; the transport of the Lua mods'
+// cleria-nettest — the WebSocket client (src/cleria/net/websocket; the transport of the Lua mods'
 // cleria.net.websocket, build/shell_re/LUA_API.md §8). Split out of the former cleria-aptest when the
 // built-in C++ Archipelago client was removed (its Lua replacement, samples/mods/archipelago_lua, rides on
 // this socket):
@@ -6,7 +6,8 @@
 //   2. a LOOPBACK WebSocket server (winsock, 127.0.0.1, an echo server) driven through net::WebSocket:
 //      the wss -> ws fallback, a greeting, echo, a 2 MB message (fragments reassembled), an idle period
 //      longer than the handshake timeout, a server kick, a polite close, a close the server ignores,
-//      nothing listening, an invalid address. No internet is used.
+//      permessage-deflate (compressed messages, fragmented), nothing listening, an invalid address. No
+//      internet is used.
 // Usage: cleria-nettest            (ctest `nettest`)
 //        cleria-nettest --live <address>   (manual, never run by ctest: opens a socket for 10 s, prints)
 #ifdef _WIN32
@@ -43,6 +44,8 @@ static int closesocket(SOCKET s) { return ::close(s); }
 #include <vector>
 
 #include "cleria/net/websocket.hpp"
+#define MINIZ_NO_ZLIB_COMPATIBLE_NAMES   // keeps deflate / inflate free as plain names
+#include "miniz.h"
 
 using namespace cleria::net;
 
@@ -133,7 +136,8 @@ struct MiniServer {
     int port = 0;
     std::thread th;
     std::atomic<bool> quit{false}, kick{false}, ignore_close{false};
-    std::atomic<int> connections{0}, tls_attempts{0}, polite_closes{0}, texts{0};
+    std::atomic<bool> deflate{false};   // accept permessage-deflate and compress what we send (as Archipelago does)
+    std::atomic<int> connections{0}, tls_attempts{0}, polite_closes{0}, texts{0}, deflated{0};
 
     bool start() {
         listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -163,9 +167,9 @@ struct MiniServer {
         }
         return true;
     }
-    static bool send_frame(SOCKET s, int opcode, const std::string& payload) {
+    static bool send_frame(SOCKET s, int opcode, const std::string& payload, bool fin = true, bool rsv1 = false) {
         std::string f;
-        f += static_cast<char>(0x80 | opcode);
+        f += static_cast<char>((fin ? 0x80 : 0) | (rsv1 ? 0x40 : 0) | opcode);
         const std::uint64_t n = payload.size();
         if (n < 126) f += static_cast<char>(n);
         else if (n < 65536) { f += static_cast<char>(126); f += static_cast<char>(n >> 8); f += static_cast<char>(n & 0xFF); }
@@ -207,10 +211,35 @@ struct MiniServer {
             key = req.substr(b, req.find("\r\n", b) - b);
         }
         const std::string accept = base64(sha1(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"));
+        std::string low = req;
+        for (char& ch : low) ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
+        const bool z = deflate && low.find("permessage-deflate") != std::string::npos;
         send_all(s, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " +
-                        accept + "\r\n\r\n");
+                        accept + (z ? "\r\nSec-WebSocket-Extensions: permessage-deflate" : "") + "\r\n\r\n");
         ++connections;
-        send_frame(s, 1, "hello");
+        // compressed messages keep one deflate context for the connection (no server_no_context_takeover), and
+        // a long one goes out in two frames
+        mz_stream zs{};
+        if (z) mz_deflateInit2(&zs, MZ_DEFAULT_LEVEL, MZ_DEFLATED, -MZ_DEFAULT_WINDOW_BITS, 8, MZ_DEFAULT_STRATEGY);
+        const auto send_text = [&](const std::string& text) {
+            if (!z) return send_frame(s, 1, text);
+            std::string out(mz_deflateBound(&zs, static_cast<mz_ulong>(text.size())) + 64, '\0');
+            zs.next_in = reinterpret_cast<const unsigned char*>(text.data());
+            zs.avail_in = static_cast<unsigned int>(text.size());
+            zs.next_out = reinterpret_cast<unsigned char*>(out.data());
+            zs.avail_out = static_cast<unsigned int>(out.size());
+            mz_deflate(&zs, MZ_SYNC_FLUSH);
+            out.resize(out.size() - zs.avail_out - 4);   // without the 00 00 ff ff tail
+            ++deflated;
+            if (out.size() < 64) return send_frame(s, 1, out, true, true);
+            return send_frame(s, 1, out.substr(0, out.size() / 2), false, true) && send_frame(s, 0, out.substr(out.size() / 2));
+        };
+        struct ZEnd {
+            mz_stream& zs;
+            bool on;
+            ~ZEnd() { if (on) mz_deflateEnd(&zs); }
+        } zend{zs, z};
+        send_text("hello");
 
         std::string in, msg;
         while (!quit) {
@@ -248,7 +277,7 @@ struct MiniServer {
                 msg += payload;
                 if (!fin) continue;
                 ++texts;
-                send_frame(s, 1, msg == "big" ? std::string(2u << 20, 'x') : "echo: " + msg);
+                send_text(msg == "big" ? std::string(2u << 20, 'x') : "echo: " + msg);
                 msg.clear();
             }
         }
@@ -365,6 +394,31 @@ static void loopback_tests() {
     }
     check(opened && closed2 && now_s() - t0 < 6, "close() against a server that never answers finishes by itself");
     srv.ignore_close = false;
+
+    // permessage-deflate: offered by the client, taken by the server, whose messages arrive compressed
+    srv.deflate = true;
+    {
+        WebSocket wz;
+        std::vector<WebSocket::Event> zev;
+        wz.open("ws://" + addr, opt);
+        const bool zhello = pump(wz, zev, [&] { return find(zev, K::Message, "hello") != nullptr; }, 10);
+        check(zhello && srv.deflated >= 1, "permessage-deflate negotiated: the compressed greeting arrives");
+        wz.send("zip 1");
+        wz.send("zip 2");
+        check(pump(wz, zev, [&] { return find(zev, K::Message, "echo: zip 2") != nullptr; }, 5) &&
+                  find(zev, K::Message, "echo: zip 1") != nullptr,
+              "compressed echoes, one deflate context across messages");
+        zev.clear();
+        wz.send("big");
+        pump(wz, zev, [&] { return find(zev, K::Message) != nullptr; }, 10);
+        const WebSocket::Event* zbig = find(zev, K::Message);
+        check(zbig && zbig->text == std::string(2u << 20, 'x'), "a compressed 2 MB message in two frames arrives whole");
+        wz.close();
+        zev.clear();
+        check(pump(wz, zev, [&] { return find(zev, K::Closed) != nullptr; }, 5) && !find(zev, K::Closed)->error,
+              "close() on a compressed connection");
+    }
+    srv.deflate = false;
 
     // nothing listening: a clear failure
     WebSocket dead;

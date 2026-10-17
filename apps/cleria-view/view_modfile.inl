@@ -14,7 +14,9 @@
 #include "cleria/modinstall.hpp"
 #ifdef _WIN32
 #include <commdlg.h>   // GetOpenFileNameW: "Install a mod file..."
+#include <io.h>        // _get_osfhandle: Restart now hands the logs on
 #else
+#include <cerrno>       // Restart now's execv
 #include <fcntl.h>      // the single-instance lock file
 #include <sys/file.h>   // flock
 #include <unistd.h>
@@ -109,8 +111,9 @@ static void modfile_associate(bool want) {
     }
     if (!ok) std::printf("[modfile] file association: the registry could not be updated\n");
 #elif defined(__APPLE__)
-    // No per-user association without an app bundle: `cleria-view --install-mod <file>` installs one.
-    if (want) std::printf("[modfile] file association: not available on macOS (use --install-mod <file>)\n");
+    // CleriaCore.app declares .cleriamod in its Info.plist (tools/macos_bundle.py): Finder opens them with it and
+    // modfile_dropped installs them. Nothing to register per user; a bare build uses --install-mod <file>.
+    (void)want;
 #else
     // The freedesktop .desktop entry + mime type under $XDG_DATA_HOME (src/cleria/fileassoc, xdg::).
     const fs::path home = fileassoc::xdg::user_data_home();
@@ -289,19 +292,148 @@ static void modfile_install_ui(ModsUi& u, const fs::path& file) {
     f.tab_err = !r.ok;
 }
 
+// A file dropped on the window (any screen), or opened with CleriaCore.app on macOS (Finder's double-click, Open
+// With: SDL delivers both as SDL_EVENT_DROP_FILE). A .cleriamod or .zip is installed as by "Install a mod file...",
+// with the notice card; anything else is left to the screen. CLERIA_MODS_UI="drop=<file>" in headless checks.
+static bool modfile_dropped(const char* path) {
+    const std::string s = path;
+    const fs::path p = fs::path(std::u8string(s.begin(), s.end()));
+    std::string ext = p.extension().string();
+    for (char& c : ext) c = char(std::tolower((unsigned char)c));
+    if (ext != mods::kModFileExt && ext != ".zip") return false;
+    ModFile& f = g_modfile;
+    if (!g_mods_ui.on) {
+        f.notice = "Could not install " + modfile_u8(p.filename()) + ": this run has no settings file";
+        f.notice_err = true;
+    } else {
+        modfile_install_ui(g_mods_ui, p);
+        f.notice = f.tab_msg + (f.tab_err ? "" : ". It loads when CleriaCore restarts");
+        f.notice_err = f.tab_err;
+    }
+    f.notice_until = SDL_GetTicks() + 12000;
+    std::printf("[modfile] dropped %s\n", modfile_u8(p).c_str());
+    return true;
+}
+
+// ---- Restart now ------------------------------------------------------------------------------------------
+// The Mods tab's "Restart CleriaCore now" (when the mods set differs from the loaded one): a quit as the window's
+// close button makes it, then main() starts this exe again with the arguments it kept (modfile_keep_args: the
+// ones left after modfile_take_args, so a .cleriamod given at the first start is not installed twice). The
+// single-instance lock is let go first, so the new process is the only CleriaCore on the mods folder.
+static std::vector<std::string> g_relaunch_args;   // argv[1..]
+static bool g_relaunch = false;
+
+static void modfile_keep_args(int argc, char** argv) {
+    g_relaunch_args.assign(argv + 1, argv + argc);
+}
+
+static void modfile_request_restart() {
+    if (std::getenv("CLERIA_DRIVE")) {   // a test never starts another process
+        std::printf("[modfile] restart: would start %s again (%zu argument(s))\n", modfile_u8(modfile_exe()).c_str(),
+                    g_relaunch_args.size());
+        return;
+    }
+    g_relaunch = true;
+    SDL_Event q{};
+    q.type = SDL_EVENT_QUIT;
+    SDL_PushEvent(&q);
+}
+
+// main(), once the window is gone: the new process, when asked for.
+static void modfile_relaunch() {
+    if (!g_relaunch) return;
+    const fs::path exe = modfile_exe();
+    if (exe.empty()) return;
+    ModFile& f = g_modfile;
+#ifdef _WIN32
+    if (f.instance) { CloseHandle(f.instance); f.instance = nullptr; }
+    auto quote = [](const std::wstring& a) {   // CommandLineToArgvW's rules
+        if (!a.empty() && a.find_first_of(L" \t\"") == std::wstring::npos) return a;
+        std::wstring q = L"\"";
+        std::size_t bs = 0;
+        for (wchar_t c : a) {
+            if (c == L'\\') { ++bs; continue; }
+            q.append(c == L'"' ? bs * 2 + 1 : bs, L'\\');
+            bs = 0;
+            q += c;
+        }
+        q.append(bs * 2, L'\\');
+        return q + L"\"";
+    };
+    std::wstring cmd = quote(exe.wstring());
+    for (const std::string& a : g_relaunch_args) {
+        const std::u8string u(a.begin(), a.end());
+        cmd += L" " + quote(fs::path(u).wstring());
+    }
+    // The new process writes its logs where this one did (a terminal, a pipe, a file): only stdout and stderr
+    // are inherited (PROC_THREAD_ATTRIBUTE_HANDLE_LIST), and only when there are any (a start from Explorer has none).
+    STARTUPINFOEXW si{};
+    si.StartupInfo.cb = sizeof si;
+    HANDLE std2[2] = {HANDLE(_get_osfhandle(_fileno(stdout))), HANDLE(_get_osfhandle(_fileno(stderr)))};
+    HANDLE pass[2];
+    DWORD n = 0;
+    for (HANDLE h : std2)
+        if (h && h != INVALID_HANDLE_VALUE && (n == 0 || pass[0] != h) &&
+            SetHandleInformation(h, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT))
+            pass[n++] = h;
+    std::vector<char> attrs;
+    if (n) {
+        SIZE_T sz = 0;
+        InitializeProcThreadAttributeList(nullptr, 1, 0, &sz);
+        attrs.resize(sz);
+        si.lpAttributeList = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attrs.data());
+        if (!InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, &sz) ||
+            !UpdateProcThreadAttribute(si.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, pass, n * sizeof(HANDLE),
+                                       nullptr, nullptr)) {
+            si.lpAttributeList = nullptr;
+            n = 0;
+        } else {
+            si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+            si.StartupInfo.hStdInput = nullptr;
+            si.StartupInfo.hStdOutput = std2[0];
+            si.StartupInfo.hStdError = std2[1];
+        }
+    }
+    PROCESS_INFORMATION pi{};
+    std::fflush(nullptr);
+    const BOOL started = CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, n ? TRUE : FALSE,
+                                        n ? EXTENDED_STARTUPINFO_PRESENT : 0, nullptr, nullptr, &si.StartupInfo, &pi);
+    if (si.lpAttributeList) DeleteProcThreadAttributeList(si.lpAttributeList);
+    if (started) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    } else {
+        std::fprintf(stderr, "[modfile] restart failed (%lu)\n", GetLastError());
+    }
+#else
+    if (f.instance_fd >= 0) { ::close(f.instance_fd); f.instance_fd = -1; }
+    const std::string path = modfile_u8(exe);
+    std::vector<char*> av{const_cast<char*>(path.c_str())};
+    for (std::string& a : g_relaunch_args) av.push_back(a.data());
+    av.push_back(nullptr);
+    std::fflush(nullptr);
+    ::execv(path.c_str(), av.data());
+    std::fprintf(stderr, "[modfile] restart failed: %s\n", std::strerror(errno));
+#endif
+}
+
+// The last install's (or update's, or removal's) result, at the top of the Mods list and of Get mods.
+static void modfile_msg_row(ui::List& L) {
+    const ModFile& f = g_modfile;
+    if (!f.tab_msg.empty()) ui::info(L, "", f.tab_msg.c_str(), f.tab_err ? ui::kWarn : ui::kGood, f.tab_msg.c_str());
+}
+
 // The Mods tab's Options rows (view_mods.inl calls this after "Open mods folder").
 static void modfile_rows(ui::List& L, ModsUi& u) {
-    ModFile& f = g_modfile;
     if (ui::button(L, "Install a mod file...",
                    "Choose a .cleriamod file (or a .zip mod) to install: it is checked, copied into the mods folder, "
-                   "replaces an older version of the same mod, and is turned on. Double-clicking a .cleriamod file does "
-                   "the same. It loads when CleriaCore restarts.")) {
+                   "replaces an older version of the same mod, and is turned on. Double-clicking a .cleriamod file, or "
+                   "dropping it on this window, does the same. It loads when CleriaCore restarts.")) {
         if (const fs::path p = modfile_pick(); !p.empty()) modfile_install_ui(u, p);
     }
 #ifndef _WIN32
     if (const fs::path p = modfile_pick_take(); !p.empty()) modfile_install_ui(u, p);
 #endif
-    if (!f.tab_msg.empty()) ui::info(L, "", f.tab_msg.c_str(), f.tab_err ? ui::kWarn : ui::kGood, f.tab_msg.c_str());
     bool on = settings().s.cleria.mod_associate;
     if (ui::toggle(L, "Open .cleriamod files with CleriaCore", &on,
                    "On: double-clicking a .cleriamod file installs that mod into CleriaCore and turns it on (a file "
