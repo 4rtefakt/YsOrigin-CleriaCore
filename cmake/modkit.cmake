@@ -1,4 +1,4 @@
-# cleria-modkit — the mod layer: mod packages and their load order (mods, modinstall, fileassoc), the file
+# cleria-modkit — the mod layer: mod packages and their load order (mods, modinstall, fileassoc, modget), the file
 # overrides (vfs), content/*.ini (content, sidecar, inidoc, items), the event bus (mod_events) and the Lua
 # scripts with their cleria.* API (modscript, json, net/websocket, net/socket). It reaches a game only through
 # cleria::script::Host and depends on nothing else of the engine, so it builds alone, 32-bit included.
@@ -41,6 +41,7 @@ add_library(cleria-modkit STATIC
   ${_modkit_src}/mods.cpp
   ${_modkit_src}/modinstall.cpp
   ${_modkit_src}/fileassoc.cpp
+  ${_modkit_src}/modget.cpp
   ${_modkit_src}/items.cpp
   ${_modkit_src}/sidecar.cpp
   ${_modkit_src}/mod_events.cpp

@@ -341,7 +341,7 @@ bool Audio::play_bgm(const fs::path& ogg) {
                      name.c_str(), info.sample_rate, rate_);
 
     // LOOPSTART / LOOPLENGTH Vorbis comments, in samples. 29 of the 40 tracks
-    // carry them; the rest are one-shots.
+    // carry them; the rest loop whole (the track loop flag, audio.hpp).
     std::uint32_t ls = 0, ll = 0;
     const stb_vorbis_comment vc = stb_vorbis_get_comment(v);
     for (int i = 0; i < vc.comment_list_length; ++i) {
@@ -374,7 +374,7 @@ bool Audio::play_bgm(const fs::path& ogg) {
         std::printf("audio: BGM %s — loop [%u..%u] of %u samples (%.1fs)\n", name.c_str(), ls,
                     ls + ll, len, double(len) / double(info.sample_rate));
     else
-        std::printf("audio: BGM %s — one-shot, %u samples (%.1fs)\n", name.c_str(), len,
+        std::printf("audio: BGM %s — no loop tags, loops whole, %u samples (%.1fs)\n", name.c_str(), len,
                     double(len) / double(info.sample_rate));
     return true;
 }
@@ -448,8 +448,8 @@ void Audio::mix(std::int16_t* out, int frames) {
                 bgm_pos_ += std::uint64_t(got);
             }
             if (got >= want && want > 0) continue;  // buffer satisfied
-            if (!bgm_loop_end_) break;              // one-shot ran out — stay silent
-            stb_vorbis_seek(vb(bgm_), bgm_loop_start_);
+            if (!bgm_loop_end_ && got <= 0 && bgm_pos_ == bgm_loop_start_) break;   // an empty track
+            stb_vorbis_seek(vb(bgm_), bgm_loop_start_);     // the loop end, or an untagged track's end
             bgm_pos_ = bgm_loop_start_;
             ++bgm_loops_;
         }

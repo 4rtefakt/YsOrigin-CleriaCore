@@ -115,6 +115,16 @@ Per user, `HKEY_CURRENT_USER\Software\Classes` (no administrator rights):
 - `cleria-view` is a console-subsystem program: a double-click also opens its console window, as any
   launch of it does today [not modelled: a WIN32-subsystem build or a launcher stub].
 
+### 3.1 Linux and macOS
+
+- **Linux**: the same setting writes a freedesktop `.desktop` entry and a `application/x-cleriamod` mime type
+  under `$XDG_DATA_HOME` (`fileassoc::xdg`).
+- **macOS**: `CleriaCore.app`'s `Info.plist` (`tools/macos_bundle.py`) exports the type
+  `io.github.4rtefakt.cleriamod` (extension `cleriamod`, a `public.zip-archive`) and claims it as its owner, so
+  Finder opens `.cleriamod` files with CleriaCore once the app has been opened once. SDL hands the file to the
+  running app as `SDL_EVENT_DROP_FILE`, installed like a drop (§4). Nothing is registered per user, so the
+  setting does nothing there; a bare build (no `.app`) uses `--install-mod <file>`.
+
 ## 4. The Mods tab (F1 > Mods > Options)
 
 No new tab (SHELL_CORE.md §9). After **Open mods folder**:
@@ -124,6 +134,9 @@ No new tab (SHELL_CORE.md §9). After **Open mods folder**:
   when refused), the list is rescanned, and the Status row says "restart to apply". A drive run prints
   instead of opening the dialog; `CLERIA_MODS_UI="install=<file>"` runs the same install headless.
 - **Open .cleriamod files with CleriaCore**: the toggle of §3.
+- **Drop a file on the window** (any screen: the launcher, the game, the panel): a `.cleriamod` or `.zip` is
+  installed the same way and the notice card says so (`modfile_dropped`, from `Shell::event`'s
+  `SDL_EVENT_DROP_FILE`); other files are ignored. `CLERIA_MODS_UI="drop=<file>"` runs it headless.
 
 ## 5. Packing (`tools/pack_mod.py`)
 
