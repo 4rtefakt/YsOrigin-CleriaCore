@@ -16,6 +16,11 @@ else()
   # No fused multiply-add: a * b + c rounds twice, as MSVC's /fp:precise does on x64. clang contracts by
   # default (skilltest's slow fall differed by one ulp in CI), and gcc does wherever the CPU has FMA (arm64).
   add_compile_options(-ffp-contract=off)
+  # The C library's transcendentals are the Windows build's (src/cleria/platform_math.cpp): no call may be folded
+  # at compile time (gcc folds with MPFR's correctly rounded result) or fused into sincos.
+  foreach(fn sin sinf cos cosf tan tanf sincos sincosf atan2 atan2f asin asinf acos acosf exp log log10 pow powf hypotf)
+    add_compile_options(-fno-builtin-${fn})
+  endforeach()
 endif()
 
 set(TP "${CMAKE_SOURCE_DIR}/third_party")
@@ -243,6 +248,11 @@ target_link_libraries(cleria-accesstest PRIVATE cleria)
 # the C library's, bit for bit; everywhere the pinned results through std::atan2.
 add_executable(cleria-atan2ftest apps/cleria-atan2ftest/main.cpp)
 target_link_libraries(cleria-atan2ftest PRIVATE cleria)
+
+# cleria-crtmathtest � the rest of the C library functions on every platform (src/cleria/msvc_*.cpp): the pinned
+# Windows results everywhere, the linked functions being the ports, and on an FMA3 Windows runner the CRT itself.
+add_executable(cleria-crtmathtest apps/cleria-crtmathtest/main.cpp)
+target_link_libraries(cleria-crtmathtest PRIVATE cleria)
 
 # cleria-inputtest — the binding tables and the mapper FUN_005d2ba0 vs build/shell_re/CONFIG.md §3.
 add_executable(cleria-inputtest apps/cleria-inputtest/main.cpp)
@@ -478,7 +488,7 @@ else()
 endif()
 set(CLERIA_TEST_ASSETS "${_cleria_assets_default}" CACHE PATH "Asset root the ctest suite runs on")
 enable_testing()
-foreach(t collisiontest bodytest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test boss04test boss05test boss06test boss07test boss08test camtest skilltest actiontest locustest chrtest movietest settingstest inputtest mousetest gamedatatest accesstest padtest videotest atan2ftest)
+foreach(t collisiontest bodytest worldtest enemytest asotest animtest savetest combattest movetest aitest ef2simtest bullettest meshtest invtest booktest picktest wndtest bosstest boss02test boss03test boss04test boss05test boss06test boss07test boss08test camtest skilltest actiontest locustest chrtest movietest settingstest inputtest mousetest gamedatatest accesstest padtest videotest atan2ftest crtmathtest)
   add_test(NAME ${t}
            COMMAND cleria-${t} "${CLERIA_TEST_ASSETS}"
            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
@@ -524,8 +534,11 @@ add_test(NAME speedruntest COMMAND cleria-speedruntest "${CLERIA_TEST_ASSETS}" W
 # json is generic (src/cleria/json); the WinHTTP WebSocket is cleria-net. Both were written for the
 # built-in Archipelago client (ARCHIPELAGO.md), removed in favour of the Lua mod samples/mods/archipelago_lua.
 target_sources(cleria PRIVATE src/cleria/json.cpp)
-# atan2f as the x64 MSVC C library computes it, and off Windows the atan2f every program links (platform_math.cpp).
-target_sources(cleria PRIVATE src/cleria/platform_math.cpp)
+# The C library functions as the x64 MSVC C library computes them (FMA3 CPUs), and off Windows the ones every
+# program links (platform_math.cpp, msvc_*.cpp).
+target_sources(cleria PRIVATE src/cleria/platform_math.cpp src/cleria/msvc_trigf.cpp src/cleria/msvc_trigd.cpp src/cleria/msvc_inv.cpp
+               src/cleria/msvc_atan2.cpp src/cleria/msvc_pow.cpp src/cleria/msvc_powf.cpp src/cleria/msvc_hypotf.cpp
+               src/cleria/msvc_exp_log.cpp)
 add_library(cleria-net STATIC src/cleria/net/websocket.cpp src/cleria/net/socket.cpp)
 if(WIN32)
 target_link_libraries(cleria-net PUBLIC cleria winhttp ws2_32)

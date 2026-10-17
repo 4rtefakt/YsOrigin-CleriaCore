@@ -155,5 +155,28 @@ float msvc_atan2f(float fy, float fx) noexcept {
 }  // namespace cleria
 
 #ifndef _WIN32
-extern "C" float atan2f(float y, float x) { return cleria::msvc_atan2f(y, x); }
+// Ahead of the C library's, as the Windows build's (CMakeLists.txt also keeps the compiler from folding or fusing
+// these calls: -fno-builtin-sin and the like, so sin(x) and cos(x) of one x are not turned into a sincos call).
+extern "C" {
+float atan2f(float y, float x) { return cleria::msvc_atan2f(y, x); }
+float sinf(float x) { return cleria::msvc_sinf(x); }
+float cosf(float x) { return cleria::msvc_cosf(x); }
+float tanf(float x) { return cleria::msvc_tanf(x); }
+double sin(double x) { return cleria::msvc_sin(x); }
+double cos(double x) { return cleria::msvc_cos(x); }
+double tan(double x) { return cleria::msvc_tan(x); }
+float asinf(float x) { return cleria::msvc_asinf(x); }
+float acosf(float x) { return cleria::msvc_acosf(x); }
+double asin(double x) { return cleria::msvc_asin(x); }
+double acos(double x) { return cleria::msvc_acos(x); }
+double atan2(double y, double x) { return cleria::msvc_atan2(y, x); }
+double pow(double x, double y) { return cleria::msvc_pow(x, y); }
+float powf(float x, float y) { return cleria::msvc_powf(x, y); }
+float hypotf(float x, float y) { return cleria::msvc_hypotf(x, y); }
+double exp(double x) { return cleria::msvc_exp(x); }
+double log(double x) { return cleria::msvc_log(x); }
+double log10(double x) { return cleria::msvc_log10(x); }
+void sincosf(float x, float* s, float* c) { *s = cleria::msvc_sinf(x); *c = cleria::msvc_cosf(x); }
+void sincos(double x, double* s, double* c) { *s = cleria::msvc_sin(x); *c = cleria::msvc_cos(x); }
+}
 #endif
