@@ -275,12 +275,14 @@ CASES = {
                 "state 8 sub 1", "clip ACTION_01", "feet (4.910, 10.484, 32.095)", "state 8 sub 1"]),
     # ... and the kill (Lv 60): the death timeline's end block sets flag 220 and awards the EXP, which releases
     # BATTLE_0.XSO into SENTOUGO.XSO (the stairs rise: stepup_se).
+    # The swings into his body also clank (FUN_00500ac0: SE 0x5d on a boss mesh, `CLERIA_DUST` logs it).
     "velagunder_kill": dict(
-        room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="60"),
+        room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="60", CLERIA_DUST="1"),
         drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
               + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 3000, 12)) + "3000:at=0,22,180;3500:scripts;"
               + "".join(f"{t}:ok;" for t in range(3540, 3701, 40)) + "3740:scripts;3750:quit",
-        expect=["flag 220 = 1", "EXP 86 (lv 8)", "[content] boss_defeated S_1099 flag 220", "script sentougo", "script stepup_se"],
+        expect=["clank SE 0x5d on boss01", "flag 220 = 1", "EXP 86 (lv 8)", "[content] boss_defeated S_1099 flag 220",
+                "script sentougo", "script stepup_se"],
         count={"boss_defeated": 1}),
     # Hugo against Velagunder (VELAGUNDER.md §3.1 / §3.3, EFFECTHIT.md §5.1). His intro S_EVT1099_2 has more pages
     # than Yunica's: the `ok` presses run to t2200 (with the cases' 1800 above a page stays open, the world stays
