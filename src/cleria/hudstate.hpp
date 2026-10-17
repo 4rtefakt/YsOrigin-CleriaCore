@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <string>
 
+#include "cleria/cos_table.hpp"
 #include "cleria/inventory.hpp"
 #include "cleria/skillmp.hpp"
 
@@ -17,12 +18,12 @@ namespace cleria::hudstate {
 // `counter` is DAT_0076c184, or DAT_0076c188 while the skill is charged (c138 == 2); FUN_0043a540
 // adds 3 / 6 to them for widget 0 (0x43a558 / 0x43a55f). idx = (trunc(c * 0.7111) - 64) & 0xff
 // (0x6be028 = -0.7111111), alpha = 0xcc - trunc(LUT[idx] * -51) (0x6be120 = -51.0), LUT =
-// DAT_0068f350, the 256-entry cosine table (computed here, not read: [approx] in the last bit).
+// DAT_0068f350, the 256-entry cosine table (cos_table.hpp: the shipped floats).
 // So a 153..255 sine pulse: 120 ticks a cycle, 60 when charged.
 inline std::uint8_t pulse_alpha(std::int32_t counter) {
     const int k = int(float(counter) * -0.71111113f);          // cvttss2si
     const unsigned idx = unsigned(-64 - k) & 0xffu;
-    const float lut = float(std::cos(double(idx) * 6.283185307179586 / 256.0));
+    const float lut = cos_table(int(idx));
     return std::uint8_t((0xcc - int(lut * -51.0f)) & 0xff);
 }
 // The colour the quads take (0x43e87f..0x43e898): the HUD tint DAT_0074e68c's RGB, its alpha

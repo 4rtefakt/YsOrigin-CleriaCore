@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "cleria/cos_table.hpp"
 #include "cleria/mathx.hpp"
 
 namespace cleria {
@@ -59,15 +60,15 @@ struct SenTrigger {
 
     // FUN_0042cf00's test [EXPORT 0042cf00.c]: p - centre; when +0x30 != 0 the offset turns
     // through the 256-entry cosine table 0x68f350 at i = (int)(yaw * 40.7437) (0x6bda38):
-    // x' = x cos[i] - z cos[i - 64], z' = z cos[i] + x cos[i - 64]; then lo <= p' <= hi, inclusive.
-    // [approx] the table is cos(2 pi i / 256), within a few ulps of the shipped floats.
+    // x' = x cos[i] - z cos[i - 64], z' = z cos[i] + x cos[i - 64]; then lo <= p' <= hi, inclusive (cos_table.hpp:
+    // the shipped floats).
     bool contains(const Vec3& p) const {
         float dx = p.x - position.x, dz = p.z - position.z;
         const float dy = p.y - position.y;
         if (yaw != 0.0f) {
             const int i = int(yaw * 40.7436637878418f);
-            const float c = std::cos(6.28318530717958647692f * float(i & 0xff) / 256.0f);
-            const float s = std::cos(6.28318530717958647692f * float((i - 0x40) & 0xff) / 256.0f);
+            const float c = cos_table(i & 0xff);
+            const float s = cos_table((i - 0x40) & 0xff);
             const float rx = dx * c - dz * s, rz = dz * c + dx * s;
             dx = rx; dz = rz;
         }
