@@ -12,7 +12,6 @@
 // other actor, healing it 25..200 by difficulty on contact. Unaware it may warp around itself.
 // While warping it stands, is Durable and, below alpha 0.5, unhittable; every other tick
 // Durable is cleared. A coin flip on each relocation raises its hover height for good.
-// [not modelled] the warp effects' attachment.
 #include <cmath>
 
 #include "cleria/actor.hpp"
@@ -243,7 +242,7 @@ AiOut m550(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
         if (0.5f > a.alpha) a.hittable = false;
     }
     if (fx) {
-        const Vec3 at{e.self.x, e.self.y - e.height, e.self.z};
+        const Vec3 at{e.self.x, e.self.y - 0.5f, e.self.z};   // FUN_00451c20(.., (0, -0.5, 0), .., 2)
         out.effects.push_back({0x10e, at, 1.0f, true});            // enemy\m_230_taiki
         out.effects.push_back({0x10d, at, 1.3f, true});            // enemy\z_warp
         out.sounds.push_back(0x1d0);                               // zako\z_390_run (warp)

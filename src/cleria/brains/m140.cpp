@@ -9,9 +9,8 @@
 // Walking within 10 u, level, lockout clear: 2% a tick, the target within 45 deg, the
 // gauntlet volley (section 7, stand 80, lockout 80 + 75 / 56 / 30). The jump helper's jumps
 // end with form (b); the standard launch tail (K 0.1, push +0x7e0).
-// The charge effect hits through its particles (EFFECTHIT.md). [not modelled] its attachment (re-placed on
-// the actor every tick instead); the KILLFX 16-step fade, and the kill on the handler's dead
-// path.
+// The charge effect hits through its particles (EFFECTHIT.md), attached to the actor (FUN_00451c20 mode 2 at
+// (0, 0.25, 0)). [not modelled] the KILLFX 16-step fade, and the kill on the handler's dead path.
 #include <cmath>
 
 #include "cleria/actor.hpp"
@@ -105,6 +104,7 @@ AiOut m140(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
                     fx.pos = {e.self.x, e.self.y + 0.25f, e.self.z};
                     fx.tag = kFx;
                     fx.rtype = 2;
+                    fx.attach = true;                              // FUN_00451c20(fx, self+0x20, (0, 0.25, 0), .., 2)
                     out.effects.push_back(fx);
                     a.i(kFx) = 1;
                     a.i(0x7c0) = 1;
@@ -115,10 +115,6 @@ AiOut m140(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
             }
             break;
         default: break;
-    }
-    if (a.i(kFx) != 0) {                                           // the attachment (re-placed)
-        AiEffect mv; mv.move_tag = kFx; mv.pos = {e.self.x, e.self.y + 0.25f, e.self.z};
-        out.effects.push_back(mv);
     }
     if ((launch_now || S == 0x13a) && A && e.grounded && e.aso_marker == 1) {   // TAIL / LAUNCH
         launch(*A, a.f(0x7dc) * 0.1f, out);
