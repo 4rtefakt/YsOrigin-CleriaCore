@@ -113,8 +113,10 @@ class Audio {
     // Starts `ogg`, or keeps the current track playing untouched if it is already
     // that file — the exe compares the file name the same way, so walking between
     // rooms that share a track must not restart it (BGM.md §3.1). An empty path
-    // stops. Honours the LOOPSTART/LOOPLENGTH Vorbis comments; tracks without
-    // them are one-shots and simply end.
+    // stops. Honours the LOOPSTART/LOOPLENGTH Vorbis comments; a track without them
+    // restarts from its start at its end: every game path starts the stream with the
+    // track loop flag set (Bgm_Play's EDX = 1 at the room entry 0x4323e0, the game over
+    // 0x427a64 and op 0xb9 0x5698fb; SoundStream_OggVorbis::Update's end-of-file branch).
     bool play_bgm(const std::filesystem::path& ogg);
     void stop_bgm();
     // Bgm_Stop(ms) (FUN_00432fc0 -> FUN_005cde10 [BYTES]): queues audio command 3, a LINEAR
@@ -199,7 +201,7 @@ class Audio {
     std::string bgm_name_;            // "" when nothing is streaming
     std::uint64_t bgm_pos_ = 0;       // decode cursor, in frames
     std::uint32_t bgm_loop_start_ = 0;
-    std::uint32_t bgm_loop_end_ = 0;  // 0 = no loop points -> one-shot
+    std::uint32_t bgm_loop_end_ = 0;  // 0 = no loop points: the whole track loops
     std::uint32_t bgm_loops_ = 0;
     float bgm_volume_ = 1.0f;
     float bgm_slider_ = 1.0f;          // set_bgm_volume's raw value, for the fade's taper

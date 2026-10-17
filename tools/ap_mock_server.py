@@ -104,6 +104,8 @@ class Conn:
 
     # ---- frames ----
     def send(self, packets):
+        if self.room.a.delay:              # a slow server (--delay): every reply that much later
+            time.sleep(self.room.a.delay / 1000)
         data = json.dumps(packets).encode()
         n = len(data)
         hdr = bytes([0x81])
@@ -299,6 +301,7 @@ class Conn:
                         self.send([{"cmd": "SetReply", "key": key, "value": r.store[key], "original_value": old, "slot": 0}])
             elif t.startswith("!reseed "):
                 r.a.seed = t[8:].strip()          # the next connection's RoomInfo
+                self.send([{"cmd": "PrintJSON", "type": "Chat", "data": [{"text": "The seed is now %s." % r.a.seed}]}])
             else:
                 self.send([{"cmd": "PrintJSON", "type": "Chat", "data": [{"text": "%s: %s" % (r.a.slot, t)}],
                             "team": 0, "slot": 2, "message": t}])
@@ -319,6 +322,7 @@ def main():
     ap.add_argument("--password", default="")
     ap.add_argument("--seed", default="CLERIATEST")
     ap.add_argument("--death-link", action="store_true")
+    ap.add_argument("--delay", type=int, default=0, help="milliseconds before every reply (a slow server)")
     ap.add_argument("--slot-data", default="{}", help="a JSON object laid over the slot_data fixture")
     ap.add_argument("--give", action="append", default=[], help="an item the slot already received at login")
     a = ap.parse_args()

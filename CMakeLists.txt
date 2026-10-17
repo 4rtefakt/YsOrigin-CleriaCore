@@ -500,6 +500,11 @@ add_test(NAME weathertest COMMAND cleria-weathertest "${CLERIA_TEST_ASSETS}" WOR
 # The SE voices (loop, the dup buffer pick, Se_Stop / Se_Volume, the scene entry's stop-all), no device.
 add_test(NAME audiotest COMMAND cleria-audiotest "${CLERIA_TEST_ASSETS}" --voices WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(audiotest PROPERTIES LABELS assets)
+# An untagged track (YSO_020, 3563136 samples) started 1 s before its end restarts from 0: the game starts every
+# stream with the track loop flag (src/cleria/audio.hpp).
+add_test(NAME audiotest_bgm_wrap COMMAND cleria-audiotest "${CLERIA_TEST_ASSETS}" --bgm demo6 3 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(audiotest_bgm_wrap PROPERTIES LABELS assets ENVIRONMENT "CLERIA_BGM_SEEK=3519000"
+                     PASS_REGULAR_EXPRESSION "looped 1 time")
 # The tests that read game data (they fail without an unpacked game). CI runs `ctest -LE assets`
 # (.github/workflows/build.yml); every other test passes with no asset root (measured 2026-10-08).
 set_tests_properties(worldtest enemytest asotest animtest ef2simtest bullettest invtest booktest bosstest

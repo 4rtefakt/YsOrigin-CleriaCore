@@ -181,6 +181,10 @@ struct LuaRt {
     double boss_bonus = 0;                             // cleria.combat.boss_bonus: added to the player's next hit on a boss part
     int newgame_char = 0, newgame_diff = 2;            // cleria.game.new_game: asked for (0 = no), started by the title
     std::deque<std::string> log_tail;                  // the mods' last log lines (the console)
+    std::vector<std::string> drive_log;                // a drive run: every mod log line, for waitlog=
+    std::size_t drive_log_from = 0;                    // waitlog= looks from here (past the last line a wait matched)
+    std::string drive_wait;                            // the text a drive's waitlog= is holding for ("" = none)
+    int drive_wait_left = 0;                           // ticks it still holds before it gives up
     std::set<std::string> reload;                      // mods whose script starts afresh at the next frame
     std::map<std::string, std::int64_t> watch;         // CLERIA_MOD_WATCH: each script file's last write time
     int watch_in = 0;
@@ -655,6 +659,27 @@ void LuaHost::log(const std::string& mod, const std::string& text) {
     script::Host::log(mod, text);
     g_lua.log_tail.push_back("[" + mod + "] " + text);
     while (g_lua.log_tail.size() > 200) g_lua.log_tail.pop_front();
+    static const bool driven = std::getenv("CLERIA_DRIVE") != nullptr;
+    if (driven) g_lua.drive_log.push_back(text);
+}
+
+// CLERIA_DRIVE waitlog=<text>[,<ticks>]: the drive's later commands wait (their ticks move on with the game's)
+// until a mod logs a line holding <text>, or <ticks> pass (default 3600, a minute). A line counts once: the next
+// wait looks past it. For anything that answers in real time (an Archipelago server), in place of a guessed delay.
+// -> true while the drive is held (view_game.inl moves the later commands one tick on).
+static bool lua_drive_holding() {
+    if (g_lua.drive_wait.empty()) return false;
+    for (std::size_t i = g_lua.drive_log_from; i < g_lua.drive_log.size(); ++i)
+        if (g_lua.drive_log[i].find(g_lua.drive_wait) != std::string::npos) {
+            std::printf("  [drive] waitlog '%s': %s\n", g_lua.drive_wait.c_str(), g_lua.drive_log[i].c_str());
+            g_lua.drive_log_from = i + 1;
+            g_lua.drive_wait.clear();
+            return false;
+        }
+    if (--g_lua.drive_wait_left > 0) return true;
+    std::printf("  [drive] waitlog '%s' timed out\n", g_lua.drive_wait.c_str());
+    g_lua.drive_wait.clear();
+    return false;
 }
 bool LuaHost::run_command(const std::string& name, const std::string& args) {
     for (auto& m : g_lua.mods)
@@ -870,6 +895,14 @@ static bool lua_drive(const std::string& cmd) {
         return true;
     }
     if (cmd.rfind("modreload=", 0) == 0) { g_lua.reload.insert(cmd.substr(10)); return true; }   // a mod's script afresh (next frame)
+    if (cmd.rfind("waitlog=", 0) == 0) {                  // hold the drive for a mod's log line (lua_drive_holding)
+        const std::string a = cmd.substr(8);
+        const std::size_t c = a.rfind(',');
+        const bool n = c != std::string::npos && c + 1 < a.size() && a.find_first_not_of("0123456789", c + 1) == std::string::npos;
+        g_lua.drive_wait = n ? a.substr(0, c) : a;
+        g_lua.drive_wait_left = n ? std::stoi(a.substr(c + 1)) : 3600;
+        return true;
+    }
     if (cmd.rfind("lua=", 0) != 0) return false;
     const std::string rest = cmd.substr(4);
     const std::size_t sp = rest.find(' ');
