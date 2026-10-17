@@ -41,6 +41,7 @@ static std::string content_summary();    // its row's value (view_content.inl)
 static void modfile_rows(ui::List& L, ModsUi& u);                    // Install a mod file..., the association (view_modfile.inl)
 static void modfile_install_ui(ModsUi& u, const fs::path& file);     // CLERIA_MODS_UI install=<file>
 static void modfile_msg_row(ui::List& L);                            // the last install's result
+static void modfile_request_restart();                               // Restart now (view_modfile.inl)
 // Get mods, updates, Remove (view_modget.inl)
 static void modget_take(ModsUi& u);
 static void modget_rows(ui::List& L, ModsUi& u);
@@ -165,6 +166,7 @@ static void mods_ui_script(ModsUi& u) {
         const std::string op = it.substr(0, eq), id = it.substr(eq + 1);
         if (op == "install") { modfile_install_ui(u, fs::path(id)); continue; }   // the tab's Install a mod file...
         if (op == "drop") { modfile_dropped(id.c_str()); continue; }               // a file dropped on the window
+        if (op == "restart") { modfile_request_restart(); continue; }              // Restart now (a drive run only prints)
         if (modget_ui_op(u, op, id)) continue;                                      // get / check / update / remove
         int i = -1;
         for (int k = 0; k < int(u.list.size()); ++k)
@@ -432,6 +434,10 @@ static void mods_page(ui::List& L) {
             const bool pend = mods_pending(u);
             if (pend) s += "  \xE2\x80\xA2  restart to apply";
             ui::info(L, "Status", s.c_str(), pend ? ui::kWarn : ui::kGood);
+            if (pend && ui::button(L, "Restart CleriaCore now",
+                                   "Closes CleriaCore and starts it again with the mods as they are set here. In a game, "
+                                   "save first: progress since your last save is lost."))
+                modfile_request_restart();
         }
         modfile_msg_row(L);
         ui::section(L, "Add and update");
