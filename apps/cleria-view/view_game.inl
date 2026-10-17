@@ -652,9 +652,10 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
     // See build/audio_re/BGM.md §2-3.
     SceneList scenes;
     BgmDefs bgmdefs;
+    bool music_found = true;   // false: the launcher says so (an install whose release\music is empty)
     if (!scenes.load(asset_root))
         std::printf("audio: no MAP/SCENELIST.SL — no per-room BGM\n");
-    else if (!bgmdefs.load(asset_root))
+    else if (!(music_found = bgmdefs.load(asset_root)))
         std::printf("audio: no music folder found — set CLERIA_MUSIC_DIR to the game's "
                     "release\\music to hear BGM\n");
     else
@@ -1030,6 +1031,9 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
             const int hit = menu.draw(dl, w, h, nav, kItems, 4, !shell.open);
             gd.poll();
             if (gd.task.running()) ui::status(dl, h, false, "Unpacking the game data...", "Settings  \xE2\x80\xA2  Prelaunch");
+            else if (!music_found)
+                ui::status(dl, h, false, "No music found in your Ys Origin install.",
+                           "In Steam: Ys Origin > Properties > Installed Files > Verify integrity of game files");
             else ui::status(dl, h, true, "Game data ready.",
                             ((gd.ready() ? "Ys Origin  \xE2\x80\xA2  " : "Development assets  \xE2\x80\xA2  ") +
                              std::string(gamedata::language(g_language)->name)).c_str());
