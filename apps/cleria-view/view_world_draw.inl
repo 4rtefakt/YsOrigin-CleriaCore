@@ -325,6 +325,10 @@ struct FnAiWorld : AiWorld {
     void force_camera(int r, float rate) override { if (camera_fn) camera_fn(r, rate); }
     std::function<void(int, const Vec3&)> sound_fn;     // a positional SE (M360's crystal kills)
     void sound_at(int id, const Vec3& p) override { if (sound_fn) sound_fn(id, p); }
+    std::function<void(int, float)> sound_2d_fn;
+    void sound_2d(int id, float vol) override { if (sound_2d_fn) sound_2d_fn(id, vol); }
+    std::function<void(int, int)> stop_sound_fn;
+    void stop_sound(int id, int ms) override { if (stop_sound_fn) stop_sound_fn(id, ms); }
     std::function<void(Actor&, int, int)> restat_fn;    // FUN_004202e0 (M360's INIT)
     void restat(Actor& a, int c, int lv) override { if (restat_fn) restat_fn(a, c, lv); }
     std::function<void(const std::function<void(const BulletRef&)>&)> bullets_fn;   // the GoXx bullets (M420)

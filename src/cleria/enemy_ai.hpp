@@ -182,6 +182,10 @@ struct AiWorld {
     virtual void restat(Actor& /*a*/, int /*cast*/, int /*level*/) {}
     // FUN_0043a080(id, &pos): a positional sound a handler plays at another actor (M360's crystal kills).
     virtual void sound_at(int /*id*/, const Vec3& /*pos*/) {}
+    // FUN_0043a040(id, vol): a 2-D SE at `vol` (0x400 = 1.0); Se_Stop's audio command (6): every voice of `id`
+    // ramps to silence over `ms`.
+    virtual void sound_2d(int /*id*/, float /*vol*/) {}
+    virtual void stop_sound(int /*id*/, int /*ms*/) {}
     // M860's pillar break (FUN_004e3070 0x4e3540..0x4e3879; KISHGAL_SHIELD.md §3): every live, unmarked EF2
     // `shield_id` whose hit particle overlaps a hit particle of a live effect with one of the `n` ids is marked
     // (+0x1d5 = 0xff) and killed (FUN_0047a7c0); per pillar the 2-D SE `se` (FUN_0043a040) plays and EF2 `impact_id`

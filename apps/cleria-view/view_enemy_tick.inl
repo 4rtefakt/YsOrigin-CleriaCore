@@ -111,6 +111,8 @@
                 // [approx] the region's blend rate (0x76a1fc) is the rig's own.
                 aiw.camera_fn = [&](int r, float) { g_rig.write_forced(r); };
                 aiw.sound_fn = [&](int id, const Vec3& p) { sfx_at(id, p, kSfxAnimVol); };
+                aiw.sound_2d_fn = [&](int id, float vol) { audio.play(id, kSfxAnimVol, vol); };
+                aiw.stop_sound_fn = [&](int id, int ms) { audio.stop_se(id, ms); };
                 aiw.restat_fn = [&](Actor& a, int c, int lv) {           // FUN_004202e0
                     const Enemy* er = etab.get(c);
                     if (!er) return;
