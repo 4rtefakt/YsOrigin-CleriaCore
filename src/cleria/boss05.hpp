@@ -13,8 +13,11 @@
 // below half HP the summon (ZOROMEKA: one Chryolos every 6 frames) and the "guts": at HP 0 with live summons it
 // survives at 1 HP and absorbs them for +30..60 HP each.
 //
-// Tags: [BYTES]/[DATA]/[H] as the spec; [not modelled] engine behaviour left out: the scene light (LightDir /
-// LightCol), the camera preset (blk+0x1ac.., copied to region slot 3 by FUN_0042bb10), the particle emitter
+// The scene light (LightDir 0x76a564.., LightCol 0x76a570..) is the module's while the fight runs: an ease toward the
+// fight's direction and the room's colour every frame, the intro's red, the booster's violet pulse, the pink hold after
+// UTIAGE, the reset at b4 500 [EXPORT 0052e2c0.c:185-208, 505-559, 876-902, 993-1021].
+// Tags: [BYTES]/[DATA]/[H] as the spec; [not modelled] engine behaviour left out: the death's light (the UTIAGE flash
+// and the fade, 0052e2c0.c:1614, 2155-2171), the camera preset (blk+0x1ac.., copied to region slot 3 by FUN_0042bb10), the particle emitter
 // FUN_00587010 (intro / death debris and its draws), the mesh tint and the glare texture, the parts' contact
 // hits (GoXx type 4, U2), the death's armour-break visuals timing beyond the effects, Hugo's scripted rounds'
 // cutscene side.
@@ -59,6 +62,7 @@ struct Boss05Setup {
     bool diff_easy = false, diff_very_easy = false, boss_rush = false;
     int retries = 0;                // g_flags[196]
     Vec3 pos{0, 0, 16};             // Mesh_Locate; the ctor overwrites z = 17
+    Vec3 light_dir{0, -1, 0}, light_col{1, 1, 1};   // 0x76a564.. / 0x76a570.. at the ctor: the backups blk+0x188 / 0x1a0
 };
 
 // One cast-0x1a actor of the pool (pool order). The module reads and writes these fields; the host copies them
@@ -89,6 +93,7 @@ struct Boss05Input {
     std::function<std::uint32_t()> rng;
     // FUN_00475710(cast 0x1a, deg, pos, level): the new actor's instance id (0 when the pool is full) and its DEF.
     std::function<int(const Vec3& pos, int deg, int level, float* def)> spawn;
+    Vec3 light_dir{0, -1, 0}, light_col{1, 1, 1};   // the scene light now (0x76a564.. / 0x76a570..)
 };
 
 struct Boss05Effect {
@@ -125,6 +130,7 @@ struct Boss05Output {
     std::optional<std::pair<float, float>> gauge;  // (HP, max) when the HP changed: FUN_0043a460, lenScale 7000
     bool destroy = false;
     std::optional<float> alpha;     // obj+0x41c target (death b4 350: fade over 4)
+    std::optional<Vec3> light_dir, light_col;   // the scene light written this frame
 };
 
 struct Boss05Part { int slot = 0; float radius = 0, hp = 0, max_hp = 0, def = 0, resist[4] = {}; float dmg = 0; Vec3 centre{}; };
@@ -192,6 +198,8 @@ private:
     // blk
     int ac_ = 0;                                  // 0xac round 2
     int b4_ = 0, b8_ = 0, bc_ = 0, c0_ = 0, c8_ = 0, cc_ = 0, d0_ = 0, d4_ = 0, d8_ = 0, dc_ = 650;
+    Vec3 light_dir0_{0, -1, 0}, light_col0_{1, 1, 1};   // blk+0x188 / blk+0x1a0 (the room's light at the ctor)
+    void light_col(const Vec3& c) { out_->light_col = c; }
     std::array<int, 4> feet_{100, 100, 100, 100}; // 0xe4..0xf0
     int f4_ = 0, f8_ = 0, fc_ = 0;
     std::array<bool, 4> aura_{};                  // 0x100..0x10c

@@ -3,7 +3,8 @@
 // cast-0x1a actors (CAST_M220 Chryolos, boss-fight brain m220_boss): the host copies their fields into
 // Boss05Minion records (pool order) and back. Included after view_boss04.inl; boss5_tick runs in step_meshes,
 // view_boss05_hit.inl at the player's swing, boss5_target in the enemy env (the +0x888 target override).
-// [not modelled] the scene light, the camera preset (region slot 3), the particle debris, the mesh tint / glare,
+// The scene light is the module's (Boss05Output::light_dir / light_col). [not modelled] the camera preset (region
+// slot 3), the particle debris, the mesh tint / glare,
 // the parts' contact hits.
 constexpr int kB5Owner = -0xB05;                           // fx owner tag for the booster auras / heals (handles)
 std::array<int, boss05::kSlots> boss5_slot{};              // slot -> the model's node index
@@ -12,6 +13,8 @@ std::array<ef2sim::M4, boss05::kSlots> boss5_slot_m{};     // the posed slot fra
 std::array<RehitBank, boss05::kParts> boss5_banks{};
 std::unordered_map<int, std::uint32_t> boss5_dead_t;       // a summon's dead ticks (+0x3fc) by instance id
 auto boss5_apply = [&](const Boss05Output& out, MeshObj* bm) {
+    if (out.light_dir) csHost.light_dir = *out.light_dir;   // 0x76a564..
+    if (out.light_col) csHost.light_rgb = *out.light_col;   // 0x76a570..
     for (int id : out.rumble) pad_rumble(id);
     for (int s : out.sections)
         if (s >= 0 && s < boss05::kSections && boss5_sect[std::size_t(s)] >= 0)
@@ -82,6 +85,7 @@ auto boss5_tick = [&] {
     if (!boss5) {
         boss_load[4] = mesh_load_serial;
         Boss05Setup su;                                    // EEX record 4
+        su.light_dir = csHost.light_dir; su.light_col = csHost.light_rgb;
         if (eex.bosses.size() > 4) {
             const BossStats& bs = eex.bosses[4];
             su.eex_hp = bs.hp; su.eex_str = bs.atk; su.eex_def = bs.def; su.level = bs.level;
@@ -161,6 +165,7 @@ auto boss5_tick = [&] {
     in.flag224 = game.g_flags[224] != 0;
     in.flag291 = game.g_flags[291] != 0;
     in.fix_held = csMgr.world_frozen();
+    in.light_dir = csHost.light_dir; in.light_col = csHost.light_rgb;
     in.player_pos = {feet.x, feet.y + kOriginH, feet.z};
     in.player_hp = float(player.hp);
     in.section = sect;
