@@ -44,6 +44,7 @@ static void save_frame_ppm(Gpu& g, WGPUTexture tex, WGPUTextureFormat fmt, std::
 }
 
 static void video_cycle_show_fps();   // Shift+F1 (view_video.inl)
+static bool modfile_dropped(const char* path);   // a file dropped on the window, or opened with CleriaCore on macOS (view_modfile.inl)
 
 struct Shell {
     bool ready = false;
@@ -146,6 +147,7 @@ struct Shell {
 
     bool event(const SDL_Event& e) {
         if (!ready) return false;
+        if (e.type == SDL_EVENT_DROP_FILE && e.drop.data && modfile_dropped(e.drop.data)) return true;
         if (capture.active && (open || launcher) && capture_event(e)) return true;
         if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_F1 && !e.key.repeat && (e.key.mod & SDL_KMOD_SHIFT)) {
             video_cycle_show_fps();                       // retail's Shift+F1: the FPS display (FUN_0040e940)

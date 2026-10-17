@@ -14,7 +14,11 @@ A short guide. The references: `build/shell_re/MODS.md` (packages, load order, t
 
 ## 1. Install and try one
 
-**A `.cleriamod` file**: double-click it. CleriaCore installs it (into the mods folder, replacing an older
+**From the list**: press **Mods** on the launcher (or F1 > Mods), then **Get mods**, and pick one. It is
+downloaded, installed and turned on; restart CleriaCore (the Mods tab offers *Restart CleriaCore now*) to play with
+it. The Mods tab also checks your mods for updates when it opens.
+
+**A `.cleriamod` file**: double-click it, or drop it on the CleriaCore window. CleriaCore installs it (into the mods folder, replacing an older
 version of the same mod) and turns it on; if CleriaCore is already running, restart it to load the mod. F1 >
 Mods > *Install a mod file...* does the same from inside the game. (Double-click works once CleriaCore has
 been started once with F1 > Mods > *Open .cleriamod files with CleriaCore* On, the default.)
@@ -116,6 +120,17 @@ writes `dist/yourname.my_mod-1.0.0.cleriamod` (`<Id>-<Version>`): a zip with one
 (the manifest, the Script file) and byte-for-byte reproducible. Players double-click it to install. A `.cleriamod`
 is a plain zip, so a `.zip` of the folder also works (dropped into the mods folder, or through *Install a mod
 file...*). See `build/shell_re/MODFILE.md`.
+
+### 7.1 Updates and the Get mods list
+
+Put your mod on GitHub and let players find it and stay up to date:
+
+1. Set `Website=https://github.com/<you>/<repo>` in `mod.ini`.
+2. For each version, publish a GitHub release tagged `v<Version>` (or `<Version>`) with the `.cleriamod`
+   attached. CleriaCore (and CleriaOre) offer it as an update to everyone with an older version.
+3. To appear on **Get mods**, add an entry to
+   [CleriaOre's `catalog/mods.json`](https://github.com/4rtefakt/CleriaOre/blob/main/catalog/mods.json)
+   (`id`, `name`, `author`, `description`, `repo`) in a pull request. The `id` must be your `Id=`.
 
 ## 8. Testing
 

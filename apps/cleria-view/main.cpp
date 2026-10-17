@@ -223,11 +223,17 @@ struct Player {
     std::uint32_t ail_mask = 0;        // the status mask 0x76c15c (ailments.hpp): the HUD's four lines
 };
 
+// The development checkout's fallback paths; a player package (CLERIA_RELEASE) looks only beside the exe.
+#ifdef CLERIA_RELEASE
+static const fs::path kDevRoot;
+#else
+static const fs::path kDevRoot = "C:/Users/kores/repos/YsOrigin-CleriaCore";
+#endif
+
 // Locate a bundled resource next to the exe, or in the repo res/ dir.
 static fs::path res_file(const std::string& name) {
     std::error_code ec;
-    for (const fs::path& c : {exe_dir() / name, exe_dir() / ".." / ".." / "res" / name,
-                              fs::path("C:/Users/kores/repos/YsOrigin-CleriaCore/res") / name})
+    for (const fs::path& c : {exe_dir() / name, exe_dir() / ".." / ".." / "res" / name, kDevRoot / "res" / name})
         if (fs::exists(c, ec)) return c;
     return exe_dir() / name;
 }
@@ -534,6 +540,7 @@ fn fs_pm(in : VsOut) -> @location(0) vec4<f32> {
 #include "view_shell.inl"
 #include "view_mods.inl"
 #include "view_modfile.inl"
+#include "view_modget.inl"
 #include "view_content.inl"
 #include "view_access.inl"
 #include "view_pad.inl"
@@ -596,10 +603,9 @@ static fs::path default_assets(const char* argv0) {
         if (fs::exists(fs::path(e) / "MAP", ec)) return e;
     if (fs::path d = gamedata::ready_data_dir(); !d.empty()) return d;
     const fs::path exedir = fs::absolute(fs::path(argv0), ec).parent_path();
-    for (const fs::path& c : {exedir / ".." / ".." / "assets", exedir / "assets",
-                              fs::path("C:/Users/kores/repos/YsOrigin-CleriaCore/assets")})
+    for (const fs::path& c : {exedir / ".." / ".." / "assets", exedir / "assets", kDevRoot / "assets"})
         if (fs::exists(c / "MAP", ec)) return fs::weakly_canonical(c, ec);
-    return "C:/Users/kores/repos/YsOrigin-CleriaCore/assets";
+    return kDevRoot.empty() ? fs::path() : kDevRoot / "assets";
 }
 
 #ifdef _WIN32
@@ -624,6 +630,7 @@ int main(int argc, char** argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);   // unbuffered: breadcrumbs survive an assert/crash
     init_cull_env();
     modfile_take_args(argc, argv);   // <file>.cleriamod / --install-mod <file> (view_modfile.inl)
+    modfile_keep_args(argc, argv);   // what the Mods tab's Restart now starts again with
     // No args -> free-fly the tower base (S_1000) with default assets.
     fs::path asset_root = (argc >= 2) ? fs::path(argv[1]) : default_assets(argv[0]);
 
@@ -905,5 +912,7 @@ int main(int argc, char** argv) {
     // then loads the first room (needs the pipeline's white_bind/tex_layout).
     // Show the title screen only on a bare launch (no room SOB given); a room argument
     // (the dev/test path) goes straight into that room, unchanged.
-    return render_window(g, asset_root, sob_path, /*show_title=*/argc < 3);
+    const int rc = render_window(g, asset_root, sob_path, /*show_title=*/argc < 3);
+    modfile_relaunch();              // Mods > Restart CleriaCore now (view_modfile.inl)
+    return rc;
 }
