@@ -1472,16 +1472,17 @@ CASES.update({
                 "[ai] #189 cast 14 phase 1", "seen #189 placed", "[ai] #189 cast 14 phase 2", "t540",
                 "seen #189 placed", "[ai] #189 cast 14 phase 2", "t780"],
         absent=["[ledge]"]),
-    # C1: the Riffligan below S_1004's 2-high platform loses a player 5.8 u away on the platform's side wall (the
-    # keep, FUN_00475c00), wanders, and sees the player again from further out. The second drop of the run is the
-    # leash of its neighbour #187 (D3, 0x47a39e): 12.5 from its anchor, more than 4 from the target, a clear line.
+    # C1: an engaged Riffligan loses a player behind S_1004's walls (the keep, FUN_00475c00: four blocked looks from
+    # its breadcrumbs) and wanders off. New course 2026-10-17: with #182's frustum scale #189 no longer stands back
+    # below the 2-high platform but chases to its foot and keeps the player; placed at t15 (was t20), the walk goes
+    # by #14, which loses the player through the 6-high wall at x 47 from 8.31 away and turns to phase 1. (The old
+    # course's leash drop of #187, D3, is not on this one.)
     "keep_ledge": dict(
         room="S_10/S_1004/S_1004",
         env={"CLERIA_AI": "1", "CLERIA_LOS": "1"},
-        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:seen=#189,4;150:move=-1.000,0.023,420;"
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;15:seen=#189,4;150:move=-1.000,0.023,420;"
               "580:move=1.000,-0.023,480;1290:quit",
-        expect=["[los] t167 #189 cast 14 2->1", "dist 5.84 blocked 1", "[ai] #189 cast 14 phase 1",
-                "[ai] #189 cast 14 phase 2", "[los] t971 #187 cast 14 2->1", "dist 9.98 blocked 0"]),
+        expect=["[los] t794 #14 cast 14 2->1", "dist 8.31 blocked 1", "tri 70 'default'", "[ai] #14 cast 14 phase 1"]),
     # C2: a Jiamobre at the top of its jump is 10.03 above a player in S_3003's pit: over the vertical limit of
     # 10 + H/2, dropped with a clear line (blocked 0).
     "keep_dy_limit": dict(
@@ -2120,7 +2121,10 @@ CASES.update({
                "1630:jump;1685:move=1,0,6;1685:jump;1699:jump;1748:move=-1,0,20;1769:move=1,0,2;1769:jump;"
                "1852:move=1,0,22;1852:jump;1902:move=0,1,10;1915:move=1,0,34;1988:move=1,0,75;2030:jump;"
                "2075:move=1,1,12;2541:move=0,1,24;2541:jump;2895:move=0,1,170;2955:jump;2995:jump;"
-               "3100:quit"),
+               "3100:quit;8:killall;656:at3=-90.484,23,37.272,0;671:at3=-89.826,23,35.556,0;1351:at3=-90.724,23,32.791,0"),
+        # (2026-10-17: since #182's frustum scale the room's shooters hit Toal at other ticks and knock her off the old
+        # line. They go at t8, and three placements put her where the old course's hits had left her: t656, t671 on
+        # the path north and t1351 before the slope; every jump and rod crossing is the old course's.)
         expect=["[plate] switch_01 -> turnswitch01", ">> entering S_4019", "arrival @ (0.0,-1.5,-3.0) [SEN]"],
         absent=["@touch_toge"]),
     # ROUTE_F47.md R6: S_6004's way up to the S_6052 door (Toal, Hard, the double jump). Both plates (466 / 467: the
@@ -2153,7 +2157,11 @@ CASES.update({
     # door over lift #1 at its top (a jump on, a jump off), the two 2-wide gaps and the edge at z 29 to S_3006.
     "lift_s3004": dict(
         room="S_30/S_3003/S_3003", char="3", env=dict(CLERIA_DRIVE_LOCKSTEP="1"),
-        drive="2:diff=3;5:opt=DamageTaken=0;6:level=22;10:exit=0;40:move=0.2,1,90;200:move=1,0,3;262:move=1,0,100;275:jump;"
+        # New course 2026-10-17 (since #182's frustum scale the monsters by the door move and swing otherwise and Toal missed lift #1):
+        # the room's monsters go at t41, and at t261 she is put where the old course had her before the lift run
+        # (2.729, 3.121); the run itself starts two ticks later (t264).
+        drive="2:diff=3;5:opt=DamageTaken=0;6:level=22;10:exit=0;40:move=0.2,1,90;41:killall;200:move=1,0,3;"
+              "261:at3=2.729,1,3.121,0;264:move=1,0,98;275:jump;"
               "322:jump;370:move=1,-0.3,66;445:move=0,1,230;461:jump;563:jump;620:jump;690:move=1,0.1,42;740:move=0,1,80;840:quit",
         expect=[">> entering S_3004", "arrival @ (0.0,0.0,-10.0) [SEN]", ">> entering S_3006"]),
     # ROUTE_F47.md B3: the last script of the game. S_0003 with 206 == 1 runs Toal's Clear_Event_2, whose
@@ -4292,13 +4300,13 @@ CASES.update({
                 "t61 actors", "id 192 cast 29 enemy hp 135 g1 0 pos (-35.5,4.5,16.6)"]),
     "sepaswait_sand": dict(
         room="S_40/S_4006/S_4006", env=_F4,
-        drive="9:opt=DamageTaken=0;10:at=12,11,90;100:actors;101:epos=#196,11,20;102:actors;104:actors;105:quit",
-        # Re-pinned 2026-10-17 (the frustum planes scaled by 1 / |n|^2: the Sepaswait walks elsewhere before the epos and
-        # the launch lands it at (12.11, 14.33)).
-        expect=["id 196 cast 63 enemy hp 254 g1 0 pos (13.1,-0.0,8.8)", "epos #196 (11.00, -3.00, 20.00)",
-                "[ai] t101 M590 #196 over water (11.00, -1.92, 20.00) -> (12.11, 1.05, 14.33)",
-                "[ai] t102 #196 cast 63 swim block: origin y 1.05 -> 0.00 (surface 1)",
-                "t104 actors", "id 196 cast 63 enemy hp 254 g1 0 pos (12.7,-0.0,11.5)"]),
+        # (30 ticks later since 2026-10-17: with #182's frustum scale the Sepaswait is still swinging at t100, and the move
+        # primitive's swim block needs it walking.)
+        drive="9:opt=DamageTaken=0;10:at=12,11,90;130:actors;131:epos=#196,11,20;132:actors;134:actors;135:quit",
+        expect=["id 196 cast 63 enemy hp 254 g1 0 pos (9.8,-0.0,9.2)", "epos #196 (11.00, -3.00, 20.00)",
+                "[ai] t131 M590 #196 over water (11.00, -1.92, 20.00) -> (10.39, 1.05, 14.60)",
+                "[ai] t132 #196 cast 63 swim block: origin y 1.05 -> 0.00 (surface 1)",
+                "t134 actors", "id 196 cast 63 enemy hp 254 g1 0 pos (9.4,-0.0,10.2)"]),
     "menoak_resists_yunica": dict(
         room="S_20/S_2008/S_2008", char="1", env=dict(_LOCK, CLERIA_DMG="1"), drive=_MENOAK,
         expect=["hit Menoak (lv14 DEF 91): 0 dmg, 146/146 left", "t124 sec 0x10d", "): 0 dmg, 146/146 left", "t224 sec 0x10e",
