@@ -74,7 +74,7 @@ function M.load_table(path)
     local doc, perr = cleria.json.decode(text)
     if not doc then return nil, path .. ": " .. perr end
     if doc.format ~= 1 or doc.game ~= "Ys Origin" then return nil, "not a Ys Origin table (format 1)" end
-    local t = {locations = {}, items = {}, loc = {}, item = {}, scene_names = {}, scene_floors = {}, chest_loc = {}}
+    local t = {locations = {}, items = {}, loc = {}, item = {}, scene_names = {}, scene_floors = {}, chest_loc = {}, roo_loc = {}}
     for k, v in pairs(obj(doc.scene_names)) do t.scene_names[tonumber(k)] = v end
     for k, v in pairs(obj(doc.scene_floors)) do t.scene_floors[tonumber(k)] = to_int(v, 0) end
     for _, j in ipairs(doc.locations) do
@@ -87,6 +87,16 @@ function M.load_table(path)
         if type(j.chest) == "table" then
             l.box_flag, l.script = to_int(j.chest.box_flag, -1), j.chest.script
             t.chest_loc[string.upper(l.key)] = l.id
+        end
+        -- a Roo trade (S_nnnn/AGERU/<flag>): its room, and the items its vanilla "Acquired" box can show
+        local roo_room = string.upper(l.key or ""):match("^(S_%d+)/AGERU/")
+        if roo_room then
+            local items = {}
+            for _, v in ipairs(type(j.vanilla) == "table" and j.vanilla or {}) do
+                local n = to_int(obj(v).item, -1)
+                if n >= 0 and n < 0x80 then items[n] = true end   -- a game item (the Topaz, 0x301, is not one)
+            end
+            t.roo_loc[roo_room] = {id = l.id, items = items}
         end
         t.locations[#t.locations + 1] = l
         t.loc[l.id] = l
@@ -164,13 +174,40 @@ local function parse_slot_options(sd)
     for k, v in pairs(obj(sd.scene_floors)) do o.scene_floors[tonumber(k)] = to_int(v, 0) end
     for k, v in pairs(obj(sd.scene_names)) do o.scene_names[tonumber(k)] = v end
     o.blessing_items = sd.blessing_items == true
+    local shop_api = cleria.shop and cleria.shop.add_filter and true or false
     o.random_start = sd.random_start == true
     -- the flag each Roo sets when fed, in the apworld's logic order (2.0: the k-th Roo needs k fruits)
     o.roo_flags = {}
     for _, f in ipairs(ints(sd.roo_flags)) do if f >= 0 and f < 0x200 then o.roo_flags[#o.roo_flags + 1] = f end end
-    if o.blessing_items then o.unsupported[#o.unsupported + 1] = "Blessing items (the shop purchase is not intercepted)" end
-    if type(sd.blessing_costs) == "table" and next(sd.blessing_costs) then o.unsupported[#o.unsupported + 1] = "Shuffled blessing prices" end
-    if to_int(sd.blessing_shop_unlock, 0) ~= 0 then o.unsupported[#o.unsupported + 1] = "Blessing shop pacing (one per floor)" end
+    -- blessing_items: the purchase is the check and its effect an item of the pool, so the shop filter keeps
+    -- the effect from being applied and the purchase (not the effect bit) is what detects the check [MOD
+    -- ap_on_blessing_purchase]. Without the shop hooks the vanilla effect comes with the check.
+    o.bless_by_purchase = o.blessing_items and shop_api
+    if o.blessing_items and not shop_api then
+        o.unsupported[#o.unsupported + 1] = "Blessing items (this CleriaCore has no shop hooks: the vanilla effect is also given)"
+    end
+    -- the statue shop's seed prices, location id -> SP (the shop filter of mod API 5 charges them), and the
+    -- same prices by the vanilla one, for a blessing that is not a location of this slot [MOD g_bless_price_map]
+    o.blessing_costs, o.blessing_vanilla, o.shop_hints = {}, {}, sd.shop_hints ~= false
+    for k, v in pairs(obj(sd.blessing_costs)) do o.blessing_costs[tonumber(k) or -1] = to_int(v, -1) end
+    for k, v in pairs(obj(sd.blessing_vanilla_price_map)) do
+        local van, new = tonumber(k), to_int(v, -1)
+        if van and van > 0 and new >= 0 then o.blessing_vanilla[van] = new end
+    end
+    if (next(o.blessing_costs) or next(o.blessing_vanilla)) and not shop_api then
+        o.unsupported[#o.unsupported + 1] = "Shuffled blessing prices (this CleriaCore has no shop hooks)"
+    end
+    -- floor -> the active location ids on it (the warp map's counts) [MOD ap_floor_count]
+    o.floor_locations = {}
+    for k, v in pairs(obj(sd.floor_locations)) do
+        local f = to_int(k, 0)
+        if f > 0 then o.floor_locations[f] = ints(v) end
+    end
+    o.apworld_version = type(sd.apworld_version) == "string" and sd.apworld_version or ""
+    o.shop_unlock = to_int(sd.blessing_shop_unlock, 0)   -- 1: one more shop slot per distinct floor visited
+    if o.shop_unlock ~= 0 and not shop_api then
+        o.unsupported[#o.unsupported + 1] = "Blessing shop pacing (one per floor)"
+    end
     return o
 end
 
@@ -178,8 +215,8 @@ end
 -- roda: Roda Fruits received so far (-1 = a save from before 0.2, whose fruits were counted into the cell);
 -- spawned: the random-start warp was done (or is not owed: a save that had already started)
 function M.new_state() return {seed = "", slot_name = "", slot = 0, applied = 0, checks = {}, claimed = {}, goal_sent = false,
-                               started = false, saw_gameplay = false, ore = 0, prog = {}, statues = {}, roda = 0,
-                               spawned = false} end
+                               started = false, saw_gameplay = false, ore = 0, prog = {}, statues = {}, roda = 0, held = {},
+                               spawned = false, floors = {}} end
 
 local function set_list(s)
     local t = {}
@@ -196,7 +233,8 @@ function M.state_to_table(st)
     if st.seed == "" then return nil end
     return {seed = st.seed, slot = st.slot, slot_name = st.slot_name, applied = st.applied, checks = set_list(st.checks),
             claimed = set_list(st.claimed), goal = st.goal_sent, started = st.started, gameplay = st.saw_gameplay, ore = st.ore,
-            prog = st.prog, statues = set_list(st.statues), roda = st.roda, spawned = st.spawned}
+            prog = st.prog, statues = set_list(st.statues), roda = st.roda, spawned = st.spawned,
+            floors = set_list(st.floors), held = set_list(st.held)}
 end
 function M.state_from_table(t)
     local st = M.new_state()
@@ -204,6 +242,7 @@ function M.state_from_table(t)
     st.seed, st.slot, st.slot_name = t.seed, to_int(t.slot, 0), type(t.slot_name) == "string" and t.slot_name or ""
     st.applied = math.max(0, to_int(t.applied, 0))
     st.checks, st.claimed, st.statues = list_set(t.checks), list_set(t.claimed), list_set(t.statues)
+    st.floors, st.held = list_set(t.floors), list_set(t.held)
     st.goal_sent, st.started, st.saw_gameplay = t.goal == true, t.started == true, t.gameplay == true
     st.ore = math.max(0, to_int(t.ore, 0))
     st.roda = t.roda == nil and -1 or math.max(-1, to_int(t.roda, -1))
@@ -212,6 +251,34 @@ function M.state_from_table(t)
     return st
 end
 function M.count(set) local n = 0 for _ in pairs(set) do n = n + 1 end return n end
+
+-- The seed's logic as the apworld exports it (slot_data.logic, rules.export_logic): region 0 is the origin,
+-- entrances {from, to, rule}, locations id -> {region, rule}; a rule is true / false, {"has", item, n},
+-- {"reach", region}, {"all", ...} or {"any", ...}. -> the set of location ids in logic with the items `have`.
+function M.in_logic(g, have)
+    local reach = {[0] = true}
+    local function ev(r)
+        if type(r) ~= "table" then return r == true end
+        local k = r[1]
+        if k == "has" then return (have[r[2]] or 0) >= r[3] end
+        if k == "reach" then return reach[r[2]] == true end
+        if k == "all" then for i = 2, #r do if not ev(r[i]) then return false end end return true end
+        if k == "any" then for i = 2, #r do if ev(r[i]) then return true end end return false end
+        return false
+    end
+    local grew = true
+    while grew do
+        grew = false
+        for _, e in ipairs(g.entrances) do
+            if reach[e[1]] and not reach[e[2]] and ev(e[3]) then reach[e[2]], grew = true, true end
+        end
+    end
+    local out = {}
+    for id, l in pairs(g.locations) do
+        if reach[l[1]] and ev(l[2]) then out[tonumber(id)] = true end
+    end
+    return out
+end
 
 -- ---- the logic ---------------------------------------------------------------------------------------------
 local Logic = {}
@@ -256,6 +323,17 @@ function Logic:configure(sd, table_)
         end
     end
     if not next(self.opt.scene_floors) then self.opt.scene_floors = table_.scene_floors end
+    if not next(self.opt.floor_locations) then   -- an older seed: the floor of each active location's room
+        for _, r in ipairs(self.regs) do
+            local l = table_.loc[r.id]
+            local f = l and (tonumber(l.floor:match("^(%d+)F")) or self.opt.scene_floors[l.scene])
+            if f and f > 0 then
+                local t = self.opt.floor_locations[f] or {}
+                t[#t + 1] = r.id
+                self.opt.floor_locations[f] = t
+            end
+        end
+    end
     if not next(self.opt.scene_names) then self.opt.scene_names = table_.scene_names end
     self.configured = true
 end
@@ -263,10 +341,12 @@ end
 function Logic:reg(id) return self.by_id[id] end
 
 -- "Boss checks on defeat" (the mod's option): a boss room's check waits for the fight's flag instead of
--- firing at the door. Boss locations are excluded from progression in the apworld, so this is never out
--- of logic.
+-- firing at the door. Since apworld 2.2 the seed says so itself (a boss check arrives as a flag detect and
+-- can hold any item), so this only acts on older seeds and on the checks the apworld left on entry. Toal's
+-- S_3080 is one of those: his 232 is set in S_4021, behind Rado's Annex, which would be out of logic.
 function Logic:boss_flag(r)
     if not self.boss_on_kill or r.detect ~= "scene" then return nil end
+    if r.scene == 3080 and G.flag(150) == 3 then return nil end
     local l = self.tbl and self.tbl.loc[r.id]
     return (l and l.type == "boss") and kBossFlag[r.scene] or nil
 end
@@ -297,6 +377,10 @@ function Logic:fire(id, out)
     out[#out + 1] = id
 end
 
+-- a blessing's bit no longer detects its check when the effects are items: the purchase does (Logic:on_blessing),
+-- and the bit is set by receiving the effect, which says nothing about the shop slot
+function Logic:bit_by_purchase(r) return self.opt.bless_by_purchase and r.flag == kBlessFlag end
+
 -- per tick: flag / item_arr / bit locations set behind the VM
 function Logic:sweep()
     local out = {}
@@ -307,7 +391,9 @@ function Logic:sweep()
             local on = false
             if r.detect == "flag" then on = r.flag >= 0 and r.flag < 0x200 and G.flag(r.flag) >= 1
             elseif r.detect == "item_arr" then on = r.index >= 0 and r.index < 54 and (G.upgrade(r.index) or 0) >= 1
-            elseif r.detect == "bit" then on = r.flag >= 0 and r.flag < 0x200 and ((G.flag(r.flag) & 0xFFFFFFFF) >> r.bit) & 1 ~= 0 end
+            elseif r.detect == "bit" and not self:bit_by_purchase(r) then
+                on = r.flag >= 0 and r.flag < 0x200 and ((G.flag(r.flag) & 0xFFFFFFFF) >> r.bit) & 1 ~= 0
+            end
             if on then st.checks[r.id] = true out[#out + 1] = r.id end
         end
     end
@@ -336,7 +422,10 @@ function Logic:on_scene(sc)
         if not self:boss_flag(r) then self:fire(r.id, out) end   -- else: the sweep, once the fight is won
     end
     local f = self.opt.scene_floors[sc]
-    if f then for _, r in ipairs(self.by_floor[f] or {}) do self:fire(r.id, out) end end
+    if f then
+        self.st.floors[f] = true   -- the shop's one-per-floor pacing
+        for _, r in ipairs(self.by_floor[f] or {}) do self:fire(r.id, out) end
+    end
     return out
 end
 
@@ -347,7 +436,7 @@ function Logic:on_store(index, old, value)
     for _, r in ipairs(self.regs) do
         if r.flag == index then
             if r.detect == "flag" and value >= 1 and old < 1 then self:fire(r.id, out) end
-            if r.detect == "bit" and (((value & 0xFFFFFFFF) & ~(old & 0xFFFFFFFF)) >> r.bit) & 1 ~= 0 then self:fire(r.id, out) end
+            if r.detect == "bit" and not self:bit_by_purchase(r) and (((value & 0xFFFFFFFF) & ~(old & 0xFFFFFFFF)) >> r.bit) & 1 ~= 0 then self:fire(r.id, out) end
         end
     end
     return out
@@ -364,6 +453,93 @@ function Logic:suppress_store(index, old, value)
     return false
 end
 function Logic:suppress_give(item) return self.opt.suppress_give_ids[item] == true end
+
+-- the location behind a statue-shop row: the script's blessing nn is bit nn (0..6) or nn - 2 (9..25) of
+-- flag 217; 7 / 8 are the armor / leggings rows, whose location is the equipped piece's upgrade cell
+-- (g_flags 152 / 153 hold the equipped piece's item index [MOD kArmorSelAbs / kBootsSelAbs])
+function Logic:bless_reg(index)
+    if index == 7 or index == 8 then
+        local sel = G.flag(index == 7 and 152 or 153)
+        for _, r in ipairs(self.regs) do
+            if r.detect == "item_arr" and r.index == sel then return r end
+        end
+        return nil
+    end
+    local bit = (index >= 0 and index <= 6) and index or (index >= 9 and index <= 25) and index - 2 or -1
+    if bit < 0 then return nil end
+    for _, r in ipairs(self.regs) do
+        if r.detect == "bit" and r.flag == kBlessFlag and r.bit == bit then return r end
+    end
+end
+
+-- one_per_floor: the priced slots, cheapest first; slot i is on sale once i distinct floors + 1 were visited.
+-- A slot holding progression is never held back [MOD shop_item_unlocked]. -> the floors still to visit, or nil.
+function Logic:shop_locked(r, progression)
+    if self.opt.shop_unlock ~= 1 or progression or not self.opt.blessing_costs[r.id] then return nil end
+    local cost, rank = self.opt.blessing_costs, 0
+    for id, c in pairs(cost) do
+        if c < cost[r.id] or (c == cost[r.id] and id < r.id) then rank = rank + 1 end
+    end
+    local need = rank + 1 - M.count(self.st.floors)
+    return need > 0 and need or nil
+end
+
+-- The statue shop (cleria.shop.add_filter, mod API 5): the answer to one query. `scouted` is the client's
+-- location id -> {item, player, flags}; `label(s)` names a scouted item for the row.
+--  * price: the seed's price for the row's location (blessing_costs), else by the vanilla price
+--    (blessing_vanilla_price_map); a slot one_per_floor has not put on sale yet costs more than any wallet.
+--    The armor / leggings ladder keeps its own prices: the seed rolls none for them [MOD ap_menu_row].
+--  * row: the price, and what the location holds when shop hints are on.
+--  * owned / buy, with blessing_items: a blessing is "applied" once its location is checked, whatever was
+--    received, so a bought row reads [Done] and a received effect does not take a slot off sale; the purchase
+--    applies nothing (the effect is an item) [MOD ap_bless_compare_price, ap_on_blessing_purchase].
+function Logic:shop_answer(q, scouted, label)
+    local o = self.opt
+    local gear = q.index == 7 or q.index == 8
+    local r = self:bless_reg(q.index)
+    local takes = o.bless_by_purchase and r ~= nil and not gear
+    if q.kind == "owned" then
+        if not takes then return nil end
+        return {action = "replace", value = self.st.checks[r.id] and 1 or 0}
+    end
+    if q.kind == "buy" then return takes and "suppress" or nil end
+    if q.kind ~= "price" and q.kind ~= "row" then return nil end
+    if gear and not r then return nil end
+    local price = not gear and r and o.blessing_costs[r.id] or nil
+    if price and price < 0 then price = nil end
+    if not r then   -- a blessing that is no location of this slot: only the vanilla price map applies
+        if q.kind ~= "price" or gear then return nil end
+        local v = o.blessing_vanilla[q.value]
+        return v and {action = "replace", value = v} or nil
+    end
+    if not price and not gear and q.kind == "price" then price = o.blessing_vanilla[q.value] end
+    local s = scouted and scouted[r.id]
+    local need = price and o.blessing_costs[r.id] and self:shop_locked(r, s ~= nil and (s.flags or 0) & 1 == 1)
+    if q.kind == "price" then
+        if need then return {action = "replace", value = 1000000} end
+        return price and {action = "replace", value = price} or nil
+    end
+    if q.value < 0 then return nil end                      -- a "[Done]" row
+    if need then
+        return {action = "replace", text = string.format("Locked: visit %d more floor%s", need, need == 1 and "" or "s")}
+    end
+    local what = o.shop_hints and s and not self.st.checks[r.id] and label and label(s) or nil
+    if not what then
+        if not price then return nil end
+        return {action = "replace", text = (q.text:gsub("%d+%s*$", tostring(price)))}
+    end
+    return {action = "replace", text = what .. " - [SP:]" .. (price or q.value)}
+end
+
+-- blessing_bought: the purchase of a blessing is its location's check (with blessing_items the only way it is
+-- detected; otherwise the effect bit says the same a tick later)
+function Logic:on_blessing(index)
+    local out = {}
+    if index == 7 or index == 8 then return out end      -- the gear upgrades: their cell detects them
+    local r = self:bless_reg(index)
+    if r then self:fire(r.id, out) end
+    return out
+end
 
 function Logic:claim_cell(index)
     for _, r in ipairs(self.regs) do
@@ -516,9 +692,62 @@ end
 -- always finds its fruit [MOD reconcile_roda_fruit].
 function Logic:roda_derived() return #self.opt.roo_flags > 0 and self.st.roda >= 0 end
 
+-- Toal and Rado's Annex. Two of his story flags, 269 (set on 20F, EV_5102_Thor_1) and 289 (set above the 21F
+-- boss, EV5097_Thor), close the annex to him: its bridge (S_4104 Kadena_Stopper -> Thor_Stopper00 / 01) and
+-- the room before it (S_4014 s_Stop4014_Thor) walk him back, and S_4104's room script takes that branch
+-- before the one that carries on from the Shion fight (206 == 1 -> EV_4104_Thor), so the fight's chain
+-- (S_4104 -> S_4017 -> S_4021, which sets 232) never ends and S_3080 starts the fight again on every entry.
+-- A seed reaches those floors in any order, so both flags are held at 0 while he is in these rooms (the
+-- stoppers test them when he steps on the trigger) and put back when he leaves.
+local kToalAnnex = {[3080] = true, [4013] = true, [4014] = true, [4016] = true, [4017] = true, [4021] = true, [4104] = true}
+function Logic:toal_annex(scene)
+    local here, out = kToalAnnex[scene] == true, nil
+    for _, f in ipairs({269, 289}) do
+        if here and G.flag(f) == 1 then
+            G.set_flag(f, 0) self.st.held[f] = true
+            out = "Rado's Annex: Toal's story flag " .. f .. " held at 0 in here (the annex stays open to him)"
+        elseif not here and self.st.held[f] then
+            G.set_flag(f, 1) self.st.held[f] = nil
+            out = "Rado's Annex: Toal's story flag " .. f .. " put back"
+        end
+    end
+    return out
+end
+
+-- the warp map's count for a floor: the floor's active locations found (by this save or, co-op, the server)
+-- and their number; nil when the floor has none [MOD ap_floor_count]
+function Logic:floor_count(f, server_checked)
+    local ids = self.opt.floor_locations[f]
+    if not ids or #ids == 0 then return nil end
+    local found = 0
+    for _, id in ipairs(ids) do
+        if self.st.checks[id] or (server_checked and server_checked[id]) then found = found + 1 end
+    end
+    return found, #ids
+end
+
+-- Hugo's Eyes of Fact are hidden by 211 == 1 while a scene runs; a scene torn down before its tail (a room
+-- change in a skipped cutscene) leaves them hidden: no shots, no flames, until a later script clears it. With
+-- the controls in the player's hands (185 == 1) and no fight running (156 == 0) nothing keeps them hidden:
+-- after 3 s of that the flag is put back [MOD repair_hugo_eyes].
+function Logic:hugo_eyes(ticks)
+    if not (G.flag(211) == 1 and G.flag(185) == 1 and G.flag(156) == 0 and (P.hp() or 0) > 0) then
+        self.eyes_since = nil
+        return nil
+    end
+    self.eyes_since = self.eyes_since or ticks
+    if ticks - self.eyes_since < 3 * 60 then return nil end
+    self.eyes_since = nil
+    G.set_flag(211, 0)
+    return "Hugo's Eyes of Fact were left hidden (211 = 1) with the controls free: cleared"
+end
+
 -- per tick: repairs of story states a randomized seed can strand [MOD repair_1f_burden_softlock,
--- repair_dreaming_idol_chain]. Both are Yunica's and both follow from the shipped scripts.
+-- repair_dreaming_idol_chain, repair_hugo_eyes]. The first two are Yunica's, the third Hugo's; all follow
+-- from the shipped scripts.
 function Logic:repair(scene, ticks)
+    if G.flag(150) == 3 then return self:toal_annex(scene) end
+    if G.flag(150) == 2 then return self:hugo_eyes(ticks) end
     if G.flag(150) ~= 1 then return nil end
     -- After the Kishgal duel she is sent to 1F ("I'm just a burden", 242 == 1 and 243 == 0): the stairs and
     -- the Crystal refuse until the Roy scene, which needs the four 1F talks (278 == 4). Each talk sits under
@@ -607,12 +836,14 @@ function Logic:goal_reached(sc)
     return true
 end
 
--- EXP scaling: level_scaling 2/3 multiply, 1/3 raise the level [MOD 2537-2560]
-function Logic:exp_factor(level)
+-- EXP scaling: level_scaling 2/3 multiply, 1/3 raise the level [MOD 2537-2560]. `base` / `catchup` (> 0) replace the
+-- seed's two multipliers, as the retail client's exp_mult_base / exp_mult_catchup do.
+function Logic:exp_factor(level, base, catchup)
     local o = self.opt
     if o.level_scaling ~= 2 and o.level_scaling ~= 3 then return 1 end
     local catching_up = self.expected_hi > 0 and level <= self.expected_hi + o.exp_catchup_margin
-    return catching_up and o.exp_catchup_mult or o.exp_base_mult
+    if catching_up then return (catchup and catchup > 0) and catchup or o.exp_catchup_mult end
+    return (base and base > 0) and base or o.exp_base_mult
 end
 function Logic:level_floor(level)
     local o = self.opt

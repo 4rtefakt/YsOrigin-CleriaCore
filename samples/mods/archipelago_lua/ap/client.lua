@@ -33,7 +33,8 @@ Client.__index = Client
 function M.client(cfg, store)
     cfg.game = cfg.game or "Ys Origin"
     cfg.tags = cfg.tags or {}
-    cfg.version = cfg.version or {major = 0, minor = 6, build = 4}
+    -- 0.6.7: the Ys Origin apworld's required_client_version from 2.0.2 on (an older client is refused)
+    cfg.version = cfg.version or {major = 0, minor = 6, build = 7}
     cfg.items_handling = cfg.items_handling or 7
     return setmetatable({
         cfg = cfg, store = store, state = "disconnected",
@@ -416,8 +417,9 @@ function Session:open_socket(now)
     self.retry_at = -1
     self.status = "connecting"
     self.last_send = now
-    if not self.ws:open(self.address) then
-        self.status, self.reason, self.want_open = "disconnected", "not a valid server address", false
+    local ok, why = self.ws:open(self.address)
+    if not ok then   -- (the engine's reason when it gives one: no network where a mod's page runs outside the game)
+        self.status, self.reason, self.want_open = "disconnected", why or "not a valid server address", false
     end
 end
 

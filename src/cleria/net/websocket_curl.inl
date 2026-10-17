@@ -145,6 +145,12 @@ void WebSocket::worker(std::shared_ptr<Conn> cp, std::vector<WsUrl> urls) {
         curl_easy_setopt(h, CURLOPT_HTTPPROXYTUNNEL, 1L);  // through a proxy: a CONNECT tunnel for ws:// too
         curl_easy_setopt(h, CURLOPT_NOSIGNAL, 1L);
         curl_easy_setopt(h, CURLOPT_ERRORBUFFER, err);
+#ifdef __APPLE__
+        // Homebrew's libcurl (the one CleriaCore.app carries) looks for its CA file under /opt/homebrew, absent on a
+        // Mac without Homebrew: the system's bundle instead, unless one is asked for (as http_request in socket.cpp).
+        if (!std::getenv("SSL_CERT_FILE") && !std::getenv("CURL_CA_BUNDLE") && access("/etc/ssl/cert.pem", R_OK) == 0)
+            curl_easy_setopt(h, CURLOPT_CAINFO, "/etc/ssl/cert.pem");
+#endif
         curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT_MS, long(o.resolve_timeout_ms + o.connect_timeout_ms));
         curl_easy_setopt(h, CURLOPT_NOPROGRESS, 0L);
         curl_easy_setopt(h, CURLOPT_XFERINFOFUNCTION, curl_progress);
