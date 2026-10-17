@@ -47,13 +47,14 @@ add_library(cleria-modkit STATIC
   ${_modkit_src}/content.cpp
   ${_modkit_src}/json.cpp
   ${_modkit_src}/net/websocket.cpp
+  ${_modkit_src}/net/ws_proto.cpp
   ${_modkit_src}/net/socket.cpp
   ${_modkit_src}/modscript.cpp
   ${_modkit_src}/modscript_api.cpp)
 target_include_directories(cleria-modkit PUBLIC "${CLERIA_MODKIT_ROOT}/src")
 target_link_libraries(cleria-modkit PUBLIC lua54 PRIVATE miniz)
 if(WIN32)
-  target_link_libraries(cleria-modkit PUBLIC winhttp ws2_32)
+  target_link_libraries(cleria-modkit PUBLIC winhttp ws2_32 secur32)
 else()
   # Off Windows the WebSocket is libcurl's (7.86+, built with WebSockets) when this is on; off, opening
   # one reports "unsupported on this platform" through the Closed event.

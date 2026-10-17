@@ -506,7 +506,7 @@ add_executable(cleria-jsontest apps/cleria-jsontest/main.cpp)
 target_link_libraries(cleria-jsontest PRIVATE cleria)
 # cleria-nettest — address parsing and a loopback WebSocket echo server (127.0.0.1 only; no internet).
 add_executable(cleria-nettest apps/cleria-nettest/main.cpp)
-target_link_libraries(cleria-nettest PRIVATE cleria)
+target_link_libraries(cleria-nettest PRIVATE cleria miniz)
 if(WIN32)
   target_link_libraries(cleria-nettest PRIVATE ws2_32)
 endif()

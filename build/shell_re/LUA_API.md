@@ -482,7 +482,7 @@ cleria.notice("Something happened", "My Mod")     -- a notice card (5 s)
 ## 8. Net, JSON, commands, speedrun
 
 ```lua
-local ws = cleria.net.websocket()                 -- the WinHTTP WebSocket (src/cleria/net/websocket)
+local ws = cleria.net.websocket()                 -- the WebSocket of src/cleria/net/websocket
 ws:open("wss://example.org:443/")                 -- or "host:port": tries wss://, then ws://
 cleria.events.on("frame", function()
     for _, e in ipairs(ws:poll()) do              -- never blocks: {kind = "open" | "message" | "close", text, error}
@@ -493,6 +493,9 @@ ws:send(cleria.json.encode({cmd = "Hello", tags = cleria.json.array()}))
 -- ws:state() -> "idle" | "connecting" | "open" | "closing" | "closed"; ws:url(); ws:close()
 ```
 
+- The socket offers permessage-deflate and inflates what the server compresses (Archipelago's MultiServer
+  warns clients without it). Windows: its own framing over winsock and SChannel (TLS 1.2), WinHTTP after a TLS
+  failure; Linux / macOS: libcurl's WebSocket, uncompressed. A mod sees text messages either way.
 - `cleria.json.encode(v [, {indent = n}])`, `cleria.json.decode(s) -> v | nil, err` (src/cleria/json: int64
   exact, NaN accepted). JSON `null` is `cleria.json.null`; decoded arrays keep an array mark, so they re-encode
   as arrays; `cleria.json.array(t)` marks a table (an empty table is otherwise an object); integer keys become
