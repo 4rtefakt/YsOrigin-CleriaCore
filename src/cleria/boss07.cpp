@@ -180,12 +180,12 @@ void Boss07::bullet(bool raw, int kind, int effect, const Vec3& pos, const Vec3&
 void Boss07::cam_slot(int n, float speed) { blk_.cam_slot = n; out_->cam_slot = std::make_pair(n, speed); }
 void Boss07::player_section(int n) { out_->player.sections.push_back(n); psec_ = n; }   // FUN_00446620
 
-Boss07Hit Boss07::hit_part(int i, int dmg) {                       // FUN_004faf20 [AB §B.2]
+Boss07Hit Boss07::hit_part(int i, int dmg, int dmg_hp) {           // FUN_004faf20 [AB §B.2]
     Boss07Part& p = parts_[std::size_t(i)];
     if (1.0f > p.pool) return Boss07Hit::kRefused;                 // 0x4faf67
     p.dmg += float(dmg);                                           // 0x4fb482: also when dmg == 0
     if (dmg > 0) {
-        p.pool -= float(dmg);                                      // [not modelled] dmg' (GELALDY G9)
+        p.pool -= float(dmg_hp);                                   // dmg' (the element bonus, 0x4fb761..0x4fb799)
         if (1.0f > p.pool) p.pool = 0.0f;
         return Boss07Hit::kLanded;
     }
