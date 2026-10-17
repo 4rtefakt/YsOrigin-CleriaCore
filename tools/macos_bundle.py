@@ -123,6 +123,20 @@ def main():
             "LSMinimumSystemVersion": "11.0",
             "LSApplicationCategoryType": "public.app-category.role-playing-games",
             "NSHighResolutionCapable": True,
+            # .cleriamod files (a zip mod, build/shell_re/MODFILE.md): Finder opens them with CleriaCore, which
+            # installs them (SDL hands the file over as a drop, view_modfile.inl modfile_dropped).
+            "UTExportedTypeDeclarations": [{
+                "UTTypeIdentifier": "io.github.4rtefakt.cleriamod",
+                "UTTypeDescription": "CleriaCore mod",
+                "UTTypeConformsTo": ["public.zip-archive", "public.data"],
+                "UTTypeTagSpecification": {"public.filename-extension": ["cleriamod"]},
+            }],
+            "CFBundleDocumentTypes": [{
+                "CFBundleTypeName": "CleriaCore mod",
+                "CFBundleTypeRole": "Viewer",
+                "LSHandlerRank": "Owner",
+                "LSItemContentTypes": ["io.github.4rtefakt.cleriamod"],
+            }],
         }, f)
 
     # Ad hoc signatures, inside out (install_name_tool invalidated the copied ones).

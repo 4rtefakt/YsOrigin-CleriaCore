@@ -96,7 +96,8 @@ press, a hold, always or never.
   randomizer, Archipelago and more are a click away, on Windows, Linux and macOS alike.
 - **Updates**: CleriaCore checks your mods for new versions when you open the Mods tab. A mod with an update
   shows its new version in gold; **Update** takes it, keeping your settings and the mod on or off as it was.
-- **Install a file**: double-click a `.cleriamod` file, or use **F1 > Mods > Install a mod file...**.
+- **Install a file**: double-click a `.cleriamod` file, drop it on the CleriaCore window, or use
+  **F1 > Mods > Install a mod file...**.
 - **Manage**: **F1 > Mods** lists your mods. Turn each on or off, move it up or down (lower in the list wins
   when two mods change the same thing), open its page for its own settings, or remove it (it goes to the
   Recycle Bin or the Trash).

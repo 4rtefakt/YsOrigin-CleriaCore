@@ -109,8 +109,9 @@ static void modfile_associate(bool want) {
     }
     if (!ok) std::printf("[modfile] file association: the registry could not be updated\n");
 #elif defined(__APPLE__)
-    // No per-user association without an app bundle: `cleria-view --install-mod <file>` installs one.
-    if (want) std::printf("[modfile] file association: not available on macOS (use --install-mod <file>)\n");
+    // CleriaCore.app declares .cleriamod in its Info.plist (tools/macos_bundle.py): Finder opens them with it and
+    // modfile_dropped installs them. Nothing to register per user; a bare build uses --install-mod <file>.
+    (void)want;
 #else
     // The freedesktop .desktop entry + mime type under $XDG_DATA_HOME (src/cleria/fileassoc, xdg::).
     const fs::path home = fileassoc::xdg::user_data_home();
@@ -289,6 +290,29 @@ static void modfile_install_ui(ModsUi& u, const fs::path& file) {
     f.tab_err = !r.ok;
 }
 
+// A file dropped on the window (any screen), or opened with CleriaCore.app on macOS (Finder's double-click, Open
+// With: SDL delivers both as SDL_EVENT_DROP_FILE). A .cleriamod or .zip is installed as by "Install a mod file...",
+// with the notice card; anything else is left to the screen. CLERIA_MODS_UI="drop=<file>" in headless checks.
+static bool modfile_dropped(const char* path) {
+    const std::string s = path;
+    const fs::path p = fs::path(std::u8string(s.begin(), s.end()));
+    std::string ext = p.extension().string();
+    for (char& c : ext) c = char(std::tolower((unsigned char)c));
+    if (ext != mods::kModFileExt && ext != ".zip") return false;
+    ModFile& f = g_modfile;
+    if (!g_mods_ui.on) {
+        f.notice = "Could not install " + modfile_u8(p.filename()) + ": this run has no settings file";
+        f.notice_err = true;
+    } else {
+        modfile_install_ui(g_mods_ui, p);
+        f.notice = f.tab_msg + (f.tab_err ? "" : ". It loads when CleriaCore restarts");
+        f.notice_err = f.tab_err;
+    }
+    f.notice_until = SDL_GetTicks() + 12000;
+    std::printf("[modfile] dropped %s\n", modfile_u8(p).c_str());
+    return true;
+}
+
 // The last install's (or update's, or removal's) result, at the top of the Mods list and of Get mods.
 static void modfile_msg_row(ui::List& L) {
     const ModFile& f = g_modfile;
@@ -299,8 +323,8 @@ static void modfile_msg_row(ui::List& L) {
 static void modfile_rows(ui::List& L, ModsUi& u) {
     if (ui::button(L, "Install a mod file...",
                    "Choose a .cleriamod file (or a .zip mod) to install: it is checked, copied into the mods folder, "
-                   "replaces an older version of the same mod, and is turned on. Double-clicking a .cleriamod file does "
-                   "the same. It loads when CleriaCore restarts.")) {
+                   "replaces an older version of the same mod, and is turned on. Double-clicking a .cleriamod file, or "
+                   "dropping it on this window, does the same. It loads when CleriaCore restarts.")) {
         if (const fs::path p = modfile_pick(); !p.empty()) modfile_install_ui(u, p);
     }
 #ifndef _WIN32
