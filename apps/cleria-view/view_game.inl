@@ -4152,8 +4152,8 @@ title_again:
     };
     // The removal (FUN_0046a3e0 0x46a6e2..0x46a6fd): fx+0x1d4 = 1, the three fields zeroed. The
     // break (hits spent, or a Fix starting, FUN_0046af60 L411-536) first attaches EF2 140
-    // PC2_S_B_koware and plays SE 153 (0x99) at the player. [not modelled] the fade-out (10) of
-    // SE 157 / 152 (FUN_005cdc40): the audio layer has no stop-by-id.
+    // PC2_S_B_koware and plays SE 153 (0x99) at the player; the Fix path first fades SE 157 / 152 over 10 ms
+    // (the Se_Stop command, inlined; see frozen_now below).
     auto remove_shield = [&](bool broken) {
         if (broken) {
             const Vec3 at{feet.x, feet.y + kOriginH, feet.z};
@@ -7619,8 +7619,13 @@ title_again:
         }
         if (frozen_now) {
             ail_tick();                              // a Fix kills the four status effects (view_ailments.inl)
-            if (shield_on) remove_shield(true);      // FUN_0046af60 L411-536 [H-med: 0x75ad90/94 = the fix counters]
-            if (barrier_fx || barrier_t) {           // ... and the super barrier [EXPORT 0046af60.c:538-648]; [not modelled] SE 761's fade
+            if (shield_on) {                         // FUN_0046af60 L411-536 [H-med: 0x75ad90/94 = the fix counters]
+                audio.stop_se(157, 10);              // the shield's loops: Se_Stop's command (6) inlined, 10 ms
+                audio.stop_se(152, 10);              // [EXPORT 0046af60.c:413-433]
+                remove_shield(true);
+            }
+            if (barrier_fx || barrier_t) {           // ... and the super barrier [EXPORT 0046af60.c:538-648]
+                if (barrier_fx) audio.stop_se(761, 10);   // +0x7e0 set: its loop SE 0x2f9 faded over 10 ms (L538-546)
                 if (fx_live(barrier_fx)) barrier_fx->kill = true;
                 barrier_fx = nullptr; barrier_t = 0;
             }
