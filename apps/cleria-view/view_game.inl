@@ -6177,7 +6177,7 @@ title_again:
     // shake globals (its step IS FUN_00427c90: 3 shared-RNG draws per frame while it runs).
     // [not modelled] the node overrides (Neji / ForeArm2 / Neck4 / the Head bug: the baked model
     // has no per-node override, so a broken forearm is not thrown away visibly),
-    // the SE stop / fade, the buff clear and the
+    // the SE stop / fade, the
     // achievement, the drop (obj+0xc4), the element bonus on the arm HP (dmg_hp = dmg), the
     // lava floor (surface 13, §6.5), the S_3099_1.SOB ring set on Hard / Nightmare (FLOOR3 B8:
     // the root script's Scene_LoadStaticObjects pick is not honoured by the room load).

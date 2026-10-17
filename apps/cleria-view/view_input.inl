@@ -128,7 +128,7 @@ static void options_save(const int slider[3], const bool chk[4]) {
     st.save();
 }
 // [game] GameFirstPlay (FUN_0040b8e0 -> DAT_0074ab9b): the demo movies' skip gate (src/cleria/movie).
-// Read only: the ending that sets it (FUN_0058f210) is [not modelled].
+// EventXX(4) (the clear) and EventXX(9) set it (FUN_0058f210; view_game.inl event_xx_fn).
 static bool ini_game_first_play() { return settings().s.game.game_first_play != 0; }
 
 // ---- input: SDL -> the mapper's snapshot -----------------------------------------------------------
