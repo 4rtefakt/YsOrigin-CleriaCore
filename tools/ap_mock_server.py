@@ -14,6 +14,8 @@ The Ys Origin data package is the mod's data/ys_origin.json ids (the apworld's o
     !give <item name>   Clicker sends that Ys Origin item to the slot (ReceivedItems + PrintJSON)
     !death              a DeathLink from Clicker (Bounced)
     !kick               drop the TCP connection (no close frame)
+    !rollback <n>       the server forgets the slot's last n received items (a host restarted from an older
+                        save), then drops the connection: the client's next login gets the shorter list
     !reseed <name>      later connections see another seed_name (the save guard)
     !hint <location>    the server hints that location of the slot: its data-storage key _read_hints_0_2
                         gains the hint (Get reads it; a SetNotify on the key gets the SetReply)
@@ -280,6 +282,10 @@ class Conn:
                 self.send([{"cmd": "Bounced", "tags": ["DeathLink"],
                             "data": {"time": time.time(), "source": "Clicker", "cause": "Clicker pressed the button too hard."}}])
             elif t == "!kick":
+                return "kick"
+            elif t.startswith("!rollback "):
+                with r.lock:
+                    del r.received[max(0, len(r.received) - int(t[10:])):]
                 return "kick"
             elif t.startswith("!hint "):
                 loc = r.locs.get(t[6:].strip())

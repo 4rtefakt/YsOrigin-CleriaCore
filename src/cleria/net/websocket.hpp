@@ -1,13 +1,17 @@
-// A WebSocket client over WinHTTP (Windows 8+; TLS by SChannel and the OS certificate store): the
-// transport of the Lua mods' cleria.net.websocket (LUA_API.md §8; first written for the Archipelago
-// connection, ARCHIPELAGO.md §2, now the Lua mod samples/mods/archipelago_lua). No third-party code.
-// Linux / macOS: the same framing over a libcurl connection (CMake CLERIA_CURL, websocket_curl.inl: libcurl makes the
-// TCP / TLS connection, one worker thread does the rest); without it, a stub (supported() false).
+// A WebSocket client: the transport of the Lua mods' cleria.net.websocket (LUA_API.md §8; first written for
+// the Archipelago connection, ARCHIPELAGO.md §2, now the Lua mod samples/mods/archipelago_lua).
+// The HTTP upgrade and the frames are our own (websocket_frames.inl), so the permessage-deflate extension
+// (RFC 7692) can be negotiated: the server's compressed messages are inflated with miniz, ours go out
+// uncompressed. Under it: winsock, and SChannel for wss:// (TLS 1.2, the OS certificate store) on Windows
+// (websocket_tls_win.inl); libcurl's raw connection on Linux / macOS (CMake CLERIA_CURL, websocket_curl.inl);
+// without it, a stub (supported() false).
+// Windows falls back to WinHTTP's WebSocket (through the system proxy, uncompressed) when no candidate URL
+// opens directly: WinHTTP fails the upgrade when the server accepts any extension, so it cannot be the main path.
 //
-// One worker thread per connection does the handshake and then blocks in WinHttpWebSocketReceive;
-// a second thread drains the send queue (WinHTTP allows one pending send and one pending receive).
-// The game thread only calls open / send / close / poll, which never block on the network
-// (close() waits at most ~2 s for a polite close handshake, then aborts the handles).
+// One worker thread per connection does the handshake, the queued sends and the receives, waiting on
+// the socket and on a wake-up that send() and close() signal (WinHTTP fallback: it blocks in
+// WinHttpWebSocketReceive, and a second thread drains the send queue). The game thread only calls open / send / close / poll, which never
+// block on the network (close() waits at most ~2 s for a polite close handshake, then aborts).
 //
 // Addresses: "ws://host:port/path", "wss://...", "archipelago://host:port" (= ws://, as the
 // reference client), or a bare "host[:port]". A bare address tries wss:// first and falls back to
@@ -16,12 +20,8 @@
 // reply is not HTTP); either way the first scheme that completes the handshake wins. Default port
 // 38281 (CommonClient.py server_loop).
 //
-// Compression: WinHTTP refuses a server that agrees to permessage-deflate, which AP's protocol doc says clients
-// "should support" (its MultiServer warns uncompressed clients they "may stop working"). On Windows the client
-// therefore frames its own messages (ws_proto: the handshake, frames, inflate by miniz) over winsock and SChannel
-// (TLS 1.2), in one worker thread, and inflates what the server compresses; it falls back to WinHTTP for a URL
-// the own client cannot connect to (a proxy, a TLS 1.3-only server). CLERIA_WS_WINHTTP=1 forces WinHTTP.
-// Linux / macOS run the same framing over libcurl's raw connection (its own WebSocket API has no compression).
+// AP's protocol doc says clients "should support per-message compression"; MultiServer warns a client
+// that connected without it.
 #pragma once
 #include <atomic>
 #include <condition_variable>
@@ -90,7 +90,6 @@ private:
     struct Conn;
     void stop_and_join();
     void worker(std::shared_ptr<Conn> c, std::vector<WsUrl> urls);
-    bool framed(Conn& c, const WsUrl& u, std::string* why, std::string* close_reason);   // the own framing
     void push(Event e);
 
     std::atomic<State> state_{State::Idle};

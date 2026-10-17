@@ -47,7 +47,6 @@ add_library(cleria-modkit STATIC
   ${_modkit_src}/content.cpp
   ${_modkit_src}/json.cpp
   ${_modkit_src}/net/websocket.cpp
-  ${_modkit_src}/net/ws_proto.cpp
   ${_modkit_src}/net/socket.cpp
   ${_modkit_src}/modscript.cpp
   ${_modkit_src}/modscript_api.cpp)
