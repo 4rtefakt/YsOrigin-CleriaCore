@@ -1559,7 +1559,7 @@ title_again:
     int atk_window = 0;                  // ticks left in the active hitbox
     // GenerateLocus sword sweeps (src/cleria/locus.hpp): the player's live GoLocusSwords, in pool
     // order, with the damage class their record took at spawn (+0x109 = FUN_0046d5e0()).
-    struct PlayerLocus { LocusSword sword; int cls = 3; int tex = 0x10; };   // tex: the trail's image handle (+0x134)
+    struct PlayerLocus { LocusSword sword; int cls = 3; int tex = 0x10; bool clanked = false; };   // tex: the trail's image handle (+0x134); clanked: +0x16c (the bounce, once)
     std::vector<PlayerLocus> loci;
     Sl2Set sl2set;
     if (!sl2set.load(asset_root)) std::printf("effects: EFFECT/SWORD*.SL2 missing — sword sweeps disabled\n");
@@ -5722,19 +5722,29 @@ title_again:
     // FUN_004faf20's tail for a hit on one of the boss's GoXx parts [EXPORT 004faf20.c:239-246, 434-448]: SE 0x5c
     // (0x5d when the damage is 0; one per 51 ms, 0x74e7e4 [approx: 4 ticks]) and, on a part without armour
     // (+0x138 clear: part 1 outside the stun, the core in the stun loop), the white damage number
-    // FUN_004fae00(0xffffffff). [H] both at the part's +0x50. [not modelled] the hit spark EF2 0x41 where the
-    // attacker's sphere meets the victim [BYTES 0x4fb87c..0x4fb950] and the blood splats of a part with +0x12c set:
-    // they take draws from the shared RNG (branch claude/rng-cosmetics, waiting for its drive re-pins).
+    // FUN_004fae00(0xffffffff). [H] both at the part's +0x50. Before them, a hit for non-zero damage spawns the
+    // hit spark EF2 0x41 (z_yarare01: rot 0, scale 1) where the attacker's sphere meets the line to the victim:
+    // attacker centre + normalize(victim centre - attacker centre) x attacker radius [BYTES 0x4fb87c..0x4fb950];
+    // `part_atk` is the attacker's sphere while the swing / particle scan runs (null: no spark). [H] the victim
+    // centre is the position the host passes. [not modelled] the blood splats of a part with +0x12c set (0x4fb4f6).
     std::uint64_t boss_part_se_tick = 0;
+    const HitShape* part_atk = nullptr;
     // FUN_004faf20 before the HP subtraction, for a hit of more than 0 on a part without armour (+0x138 clear)
-    // [EXPORT 004faf20.c:330-395; BYTES 0x4fb69b..0x4fb799]: the element bonus on the part's HP (+0x98, not the
-    // +0x134 total). [not modelled] the attacker class's elemental hit effect before it (hitfx::skill_hit_effect at
-    // the part's +0x50: RNG draws, as the spark above):
+    // [EXPORT 004faf20.c:330-395; BYTES 0x4fb69b..0x4fb799]: the attacker class's elemental hit effect
+    // (hitfx::skill_hit_effect: 0x18 / 0x1f / 0x0d at the part's +0x50, rot 0, scale 1, side 0, the attacker's
+    // stats, power 0, knock 1, class = cls) and the element bonus on the part's HP (+0x98, not the +0x134 total):
     // dmg' = floor((g_flags[183 / 182 / 184] x 0.1 + 1) x dmg) for the classes 0/4, 1/5, 2/6; none for 3; any
     // other class reads g_flags[0]. Returns dmg'.
-    auto part_element = [&](const Vec3& /*pos: the effect's spot*/, bool armor, int dmg, int cls) -> int {
+    auto part_element = [&](const Vec3& pos, bool armor, int dmg, int cls) -> int {
         if (armor || dmg <= 0) return dmg;
         const int c = int(static_cast<signed char>(cls));
+        const int eid = hitfx::skill_hit_effect(c, character);
+        if (eid >= 0) {
+            ef2sim::SpawnParams sp;
+            sp.side = 0; sp.power = 0.0f; sp.knock = 1.0f; sp.rtype = 0; sp.status = 0; sp.cls = c;
+            sp.atk = player_stats().atk; sp.owner = 13;
+            spawn_sim_fx(eid, pos, {}, 1.0f, sp, 0, {});
+        }
         if (c == 3) return dmg;
         const int idx = (c == 0 || c == 4) ? 183 : (c == 1 || c == 5) ? 182 : (c == 2 || c == 6) ? 184 : 0;
         return int(std::floor((float(game.g_flags[idx]) * 0.1f + 1.0f) * float(dmg)));   // 0x6bd19c, FUN_004217f0
@@ -5743,6 +5753,15 @@ title_again:
     // Khonsclard, Pictimos, Darm): `armor` = the part's +0x138. Where a brain does not model +0x138 the caller
     // passes true: the SE only, no number [not modelled].
     auto part_hit_feedback = [&](const Vec3& pos, bool armor, int dmg, int cls) {
+        if (dmg != 0 && part_atk) {
+            const Vec3 c = part_atk->centre;
+            Vec3 d{pos.x - c.x, pos.y - c.y, pos.z - c.z};
+            const float l = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);   // FUN_0042cc50
+            if (l > 0.0f) d = {d.x / l, d.y / l, d.z / l};
+            const float r = part_atk->radius;
+            ef2sim::SpawnParams sp; sp.side = 0;
+            spawn_sim_fx(0x41, {c.x + d.x * r, c.y + d.y * r, c.z + d.z * r}, {}, 1.0f, sp, 0, {});
+        }
         if (tick_count - boss_part_se_tick >= 4) {
             boss_part_se_tick = tick_count;
             sfx_at(dmg > 0 ? hitfx::kSeHit : hitfx::kSeNoDamage, pos, kSfxAnimVol);
