@@ -232,6 +232,10 @@ Boss02::Boss02(const Boss02Setup& s) {
         p.clip = kStop;                                          // "stop" (blend 0), blk+0x28 = 1
         p.cracked = p.role == kTail;                             // the tail has no crack stage
         p.entries_struck = s.entries_struck;
+        // The head comes from Mesh_Locate, whose flags (0x8000) lack the 0x10 that sets every collision entry's
+        // +0x8a at setup (FUN_00501a30 0x5025c1..0x5025cc, loop 0x502b09; decomp 00573930.c:65): it is never hit
+        // through the mesh, only through its kind-9 part (yso NYGTILGER.md U1).
+        if (p.role == kHead) p.entries_struck = false;
         if (p.role == kHead) {
             p.max_hp = st_.head_hp;                              // overwrites the EEX HP (N4)
             p.str = s.eex_str;                                   // the brain rewrites it every frame
