@@ -495,7 +495,7 @@ ws:send(cleria.json.encode({cmd = "Hello", tags = cleria.json.array()}))
 
 - The socket offers permessage-deflate and inflates what the server compresses (Archipelago's MultiServer
   warns clients without it). Windows: its own framing over winsock and SChannel (TLS 1.2), WinHTTP after a TLS
-  failure; Linux / macOS: libcurl's WebSocket, uncompressed. A mod sees text messages either way.
+  failure; Linux / macOS: the same framing over a libcurl connection. A mod sees text messages either way.
 - `cleria.json.encode(v [, {indent = n}])`, `cleria.json.decode(s) -> v | nil, err` (src/cleria/json: int64
   exact, NaN accepted). JSON `null` is `cleria.json.null`; decoded arrays keep an array mark, so they re-encode
   as arrays; `cleria.json.array(t)` marks a table (an empty table is otherwise an object); integer keys become

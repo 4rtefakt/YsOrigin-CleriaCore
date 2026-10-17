@@ -1,8 +1,8 @@
 // A WebSocket client over WinHTTP (Windows 8+; TLS by SChannel and the OS certificate store): the
 // transport of the Lua mods' cleria.net.websocket (LUA_API.md §8; first written for the Archipelago
 // connection, ARCHIPELAGO.md §2, now the Lua mod samples/mods/archipelago_lua). No third-party code.
-// Linux / macOS: the same class over libcurl's WebSocket API (CMake CLERIA_CURL, websocket_curl.inl: one
-// worker thread does the handshake, the sends and the receives); without it, a stub (supported() false).
+// Linux / macOS: the same framing over a libcurl connection (CMake CLERIA_CURL, websocket_curl.inl: libcurl makes the
+// TCP / TLS connection, one worker thread does the rest); without it, a stub (supported() false).
 //
 // One worker thread per connection does the handshake and then blocks in WinHttpWebSocketReceive;
 // a second thread drains the send queue (WinHTTP allows one pending send and one pending receive).
@@ -21,7 +21,7 @@
 // therefore frames its own messages (ws_proto: the handshake, frames, inflate by miniz) over winsock and SChannel
 // (TLS 1.2), in one worker thread, and inflates what the server compresses; it falls back to WinHTTP for a URL
 // the own client cannot connect to (a proxy, a TLS 1.3-only server). CLERIA_WS_WINHTTP=1 forces WinHTTP.
-// libcurl's WebSocket (Linux, macOS) has no compression either [H].
+// Linux / macOS run the same framing over libcurl's raw connection (its own WebSocket API has no compression).
 #pragma once
 #include <atomic>
 #include <condition_variable>
@@ -90,7 +90,7 @@ private:
     struct Conn;
     void stop_and_join();
     void worker(std::shared_ptr<Conn> c, std::vector<WsUrl> urls);
-    bool framed(Conn& c, const WsUrl& u, std::string* why, std::string* close_reason);   // Windows: the own framing
+    bool framed(Conn& c, const WsUrl& u, std::string* why, std::string* close_reason);   // the own framing
     void push(Event e);
 
     std::atomic<State> state_{State::Idle};
