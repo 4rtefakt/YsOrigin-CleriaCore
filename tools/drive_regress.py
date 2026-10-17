@@ -1585,7 +1585,9 @@ CASES.update({
               "40:every=20,1000,ok;1030:every=40,4100,boss5;1038:every=40,4100,atk;2180:opt=DamageDealt=20;4100:quit",
         expect=["[boss05] Pictimos: body 4000, STR 220 lv 40", "sect RAKKATYUU", "sect TYAKUTI", "f156 1",
                 "sect ZOROMEKA", "sect DEAD", "body 1/4000 guts 1 waves 0 summons 15/19", "body 601/4000 guts 1",
-                "EXP (lv 40)", "flag 224 = 1", "destroyed"]),
+                "EXP (lv 40)", "flag 224 = 1", "destroyed"],
+        # The 15 summons he takes back die in the fight: each one's handler burst (SE 11, effect 0x43, FUN_004ac470).
+        count={"death burst (SE 11, effect 0x43)": 15}),
     # ... and as Hugo: his shots' particles reach Pictimos's parts (part 1 takes the damage, the DEF-999 ones none).
     "pictimos_hugo": dict(
         room="S_50/S_5099/S_5099", char="2",
