@@ -2404,12 +2404,14 @@ title_again:
             // 005f5260.c:99-101] and the mesh update advances it every step [EXPORT 00503ef0.c:63-67]. No
             // script can name it to stop it: S_4015's two s40step_02 platforms (the only way to switch_01),
             // S_3004's three s30step0 lifts. [H] the start time = the section's first frame.
-            // [approx] only a section 0 named 'Default' (those five, and S_3004's unnamed s30swit0). Left at
-            // rest, as before: a NAMED object (it waits for its script's Mesh_SetMotion); the exporter's whole-
-            // range 'ALL' sections (S_1006's Mask of Eyes wall s10wall_00, whose re-bake would undo view_mask's
-            // collision switch; s30kaid0; s7099kumo, whose update kind is 3 [EXPORT 00501a30.c:208-211]).
-            // 'LOOP' is the three large spinning floors s50_yuka_00 / 01 / 02 (S_5005, S_5012): a standing player
-            // rides them by the frame's whole matrix (rider.hpp, MOVER.md §3.3 [BYTES 0x45a9a4..]).
+            // The model's update kind (its header +0x0c: 1 or 3 -> the GoMesh type byte 1, FUN_00501a30) is what
+            // advances [EXPORT 00501a30.c:212-226]; the section's name plays no part: S_3004's floating plates
+            // flat00.. play their 'ALL' section from the load (yso WAITOPS.md U2, FLOOR3_ROUTE_AUDIT.md §8).
+            // [approx] two models stay at rest: S_1006's Mask of Eyes wall s10wall_00, whose re-bake would undo
+            // view_mask's collision switch, and s7099kumo (a 2000-frame cloud layer in Darm's arena, re-baked
+            // every step otherwise). 'LOOP' is the three large spinning floors s50_yuka_00 / 01 / 02 (S_5005,
+            // S_5012): a standing player rides them by the frame's whole matrix (rider.hpp, MOVER.md §3.3
+            // [BYTES 0x45a9a4..]).
             // A NAMED object whose section 0 is such a clip plays it from the load as well when no script of the
             // room ever names it in a Mesh_SetMotion (0x175): the spinning blades fire00.. of S_3005 / S_3008
             // (s30fire0, 'DEFAULT', 120 frames, next -2 = it loops; their only script is the touch @Touch_Toge),
@@ -2418,8 +2420,14 @@ title_again:
             // FUN_005f5c10); [approx] an object a script does name is still left to that script -- S_4015's
             // step_00 / step_01, which the root sets to a 'STOP' their model does not have: whether they move
             // before their switches in retail needs a check.
+            const auto ymo_is = [&](const char* stem) {
+                std::string y = r.obj.ymo_path;
+                for (char& c : y) c = char(std::tolower(static_cast<unsigned char>(c)));
+                return y.find(stem) != std::string::npos;
+            };
             if (!r.name.empty() && !m.clips.empty() && (r.name[0] == '#' || !motion_named.count(r.name)) &&
-                (m.clips[0].name == "Default" || m.clips[0].name == "DEFAULT" || m.clips[0].name == "LOOP")) {
+                (r.model_kind == 1 || r.model_kind == 3) && m.clips[0].end > m.clips[0].start &&
+                !ymo_is("s10wall_00") && !ymo_is("s7099kumo")) {
                 m.sect = 0; m.time = float(m.clips[0].start); m.count = 0;
                 m.dirty_pose = true;
             }
