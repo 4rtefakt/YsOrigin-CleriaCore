@@ -1022,12 +1022,12 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
         };
         load_backdrop();
         WGPUTextureView ldepth = make_depth(g, cw, ch);
-        static const char* kItems[] = {"Play", "Settings", "Quit"};
+        static const char* kItems[] = {"Play", "Settings", "Mods", "Quit"};   // Mods: the panel on its Mods tab
         ui::MainMenu menu;
         int choice_made = -1;
         shell.launcher = true;
         shell.under = [&](ImDrawList* dl, float w, float h, const ui::Nav& nav) {
-            const int hit = menu.draw(dl, w, h, nav, kItems, 3, !shell.open);
+            const int hit = menu.draw(dl, w, h, nav, kItems, 4, !shell.open);
             gd.poll();
             if (gd.task.running()) ui::status(dl, h, false, "Unpacking the game data...", "Settings  \xE2\x80\xA2  Prelaunch");
             else ui::status(dl, h, true, "Game data ready.",
@@ -1035,6 +1035,8 @@ static int render_window(Gpu& g, const fs::path& asset_root, const fs::path& fir
                              std::string(gamedata::language(g_language)->name)).c_str());
             ui::version(dl, w, h, "CleriaCore 0.1 (dev)");
             if (hit == 1) shell.open = true;
+            else if (hit == 2) { shell.panel.select("Mods"); shell.open = true; }
+            else if (hit == 3) choice_made = 2;   // Quit
             else if (hit >= 0) choice_made = hit;
         };
         if (launcher_env && std::string(launcher_env) == "settings") shell.open = true;

@@ -289,9 +289,14 @@ static void modfile_install_ui(ModsUi& u, const fs::path& file) {
     f.tab_err = !r.ok;
 }
 
+// The last install's (or update's, or removal's) result, at the top of the Mods list and of Get mods.
+static void modfile_msg_row(ui::List& L) {
+    const ModFile& f = g_modfile;
+    if (!f.tab_msg.empty()) ui::info(L, "", f.tab_msg.c_str(), f.tab_err ? ui::kWarn : ui::kGood, f.tab_msg.c_str());
+}
+
 // The Mods tab's Options rows (view_mods.inl calls this after "Open mods folder").
 static void modfile_rows(ui::List& L, ModsUi& u) {
-    ModFile& f = g_modfile;
     if (ui::button(L, "Install a mod file...",
                    "Choose a .cleriamod file (or a .zip mod) to install: it is checked, copied into the mods folder, "
                    "replaces an older version of the same mod, and is turned on. Double-clicking a .cleriamod file does "
@@ -301,7 +306,6 @@ static void modfile_rows(ui::List& L, ModsUi& u) {
 #ifndef _WIN32
     if (const fs::path p = modfile_pick_take(); !p.empty()) modfile_install_ui(u, p);
 #endif
-    if (!f.tab_msg.empty()) ui::info(L, "", f.tab_msg.c_str(), f.tab_err ? ui::kWarn : ui::kGood, f.tab_msg.c_str());
     bool on = settings().s.cleria.mod_associate;
     if (ui::toggle(L, "Open .cleriamod files with CleriaCore", &on,
                    "On: double-clicking a .cleriamod file installs that mod into CleriaCore and turns it on (a file "

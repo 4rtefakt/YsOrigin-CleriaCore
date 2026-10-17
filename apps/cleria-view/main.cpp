@@ -535,6 +535,7 @@ fn fs_pm(in : VsOut) -> @location(0) vec4<f32> {
 #include "view_shell.inl"
 #include "view_mods.inl"
 #include "view_modfile.inl"
+#include "view_modget.inl"
 #include "view_content.inl"
 #include "view_access.inl"
 #include "view_pad.inl"
