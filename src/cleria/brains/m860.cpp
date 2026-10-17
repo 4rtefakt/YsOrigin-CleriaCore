@@ -977,7 +977,7 @@ void m860_dead(Actor& A, AiWorld& w) {
         P->i_frames = 9999;                                         // a store, not a grant
     }
     if (!(kGone > a.f(0x880))) {                                    // 0x4e7c1c: the KO resolves once
-        // [not modelled] FUN_0043a040(0x1a5, 0x400): the 2D defeat SE (a death hook has no AiOut).
+        w.sound_2d(0x1a5, 1.0f);                                    // FUN_0043a040(0x1a5, 0x400): the 2-D defeat SE
         a.f(0x880) = -9999999.0f;                                   // 0xcb18967f
         w.set_flag(174, 1);                                         // DAT_0076bbd4
         w.set_flag(156, 0);                                         // DAT_0076bb8c: the duel is over

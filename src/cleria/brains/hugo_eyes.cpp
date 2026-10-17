@@ -94,7 +94,8 @@ AiOut familiar(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
     if (std::uint32_t(h.level) > std::uint32_t(E.level)) {
         E.hp = 0.0f; out.set_hp = 0.0f;
         if (section == 5) { put(); return out; }
-        kill_fx();                                                    // [not modelled] Se_Stop(0x97 / 0x9c, 10)
+        kill_fx();
+        if (e.world) { e.world->stop_sound(0x97, 10); e.world->stop_sound(0x9c, 10); }   // Se_Stop's command, inlined
         put();
         return out;
     }
