@@ -16,10 +16,12 @@
 // reply is not HTTP); either way the first scheme that completes the handshake wins. Default port
 // 38281 (CommonClient.py server_loop).
 //
-// Not supported by WinHTTP: the permessage-deflate extension. AP's protocol doc says clients
-// "should support per-message compression" and calls uncompressed connections "deprecated" (still
-// accepted today). [H] If AP ever requires compression, replace this transport with our own
-// framing (miniz has raw deflate) over winsock + SChannel; the Client above it is unaffected.
+// Compression: WinHTTP refuses a server that agrees to permessage-deflate, which AP's protocol doc says clients
+// "should support" (its MultiServer warns uncompressed clients they "may stop working"). On Windows the client
+// therefore frames its own messages (ws_proto: the handshake, frames, inflate by miniz) over winsock and SChannel
+// (TLS 1.2), in one worker thread, and inflates what the server compresses; it falls back to WinHTTP for a URL
+// the own client cannot connect to (a proxy, a TLS 1.3-only server). CLERIA_WS_WINHTTP=1 forces WinHTTP.
+// libcurl's WebSocket (Linux, macOS) has no compression either [H].
 #pragma once
 #include <atomic>
 #include <condition_variable>
@@ -88,6 +90,7 @@ private:
     struct Conn;
     void stop_and_join();
     void worker(std::shared_ptr<Conn> c, std::vector<WsUrl> urls);
+    bool framed(Conn& c, const WsUrl& u, std::string* why, std::string* close_reason);   // Windows: the own framing
     void push(Event e);
 
     std::atomic<State> state_{State::Idle};
