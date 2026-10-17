@@ -944,6 +944,24 @@ int main(int argc, char** argv) {
             check(n->ok() && has(h.logs, want_net) && has(h.logs, "bad falsefalse"),
                   "api 7: net.udp / tcp / http on the loopback (" + n->error() + ")");
         }
+        {   // API 7: a mod keeps 16 open sockets; a closed one frees its place, and takes one again when reopened
+            auto n = make(h, tmp, "api7s", R"LUA(
+                local N = cleria.net
+                local s = {}
+                for i = 1, 16 do s[i] = N.tcp() end
+                local over = pcall(N.tcp)
+                for i = 1, 16 do s[i]:close() end
+                local t = N.tcp()
+                local again = true
+                for _ = 1, 40 do t:close() again = again and t:listen(0, false) ~= false end
+                for i = 1, 15 do s[i]:listen(0, false) end
+                local full = pcall(function() s[16]:listen(0, false) end)
+                s[1]:close()
+                local u = N.udp()
+                cleria.log("slots " .. tostring(over) .. " " .. tostring(again) .. " " .. tostring(full) .. " " .. tostring(u:bind(0, false) ~= false))
+            )LUA");
+            check(n->ok() && has(h.logs, "slots false true false true"), "api 7: closed sockets free their place (" + n->error() + ")");
+        }
         {   // API 7: cleria.camera, hud.show, game.pause and world.boss are named writes / reads
             h.ops7.clear();
             auto c = make(h, tmp, "api7k", R"LUA(
