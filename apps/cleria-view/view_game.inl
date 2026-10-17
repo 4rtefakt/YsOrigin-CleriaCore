@@ -4803,6 +4803,7 @@ title_again:
     std::unique_ptr<Boss07> boss7;           // Dalles (view_boss07.inl)
     std::function<bool(const std::string&)> boss7_drive;   // drive boss7 (view_boss07.inl)
     std::unique_ptr<Boss08> boss8;           // Darm (view_boss08.inl)
+    bool player_glow = false;                // P+0x130 & 0x40000: the light2 under-glow (Darm's ctor, view_boss08.inl)
     std::function<bool(const std::string&)> boss8_drive;   // drive boss8 (view_boss08.inl)
     struct DriveCmd { std::uint64_t tick; std::string cmd; };
     std::vector<DriveCmd> drive;
@@ -9364,12 +9365,14 @@ title_again:
                 }
                 const float fy = sfl > kNoFloor ? sfl : feet.y;
                 const std::uint32_t pt = wpl ? wpl->tint : 0xffffffffu;
+                // Darm's ctor (0x551bcb..0x551c10): +0x130 |= 0x40000, +0x290 rgb 0xbfbfbf, +0x144 = 1.0.
                 shadow_actor(g, view, depth, shadows.tex, shadow_frame, feet, fy,
-                             casts.casts.size() > std::size_t(kPlayerCast) ? casts.casts[std::size_t(kPlayerCast)].shadow_size : 0.6f,
+                             player_glow ? 1.0f
+                             : casts.casts.size() > std::size_t(kPlayerCast) ? casts.casts[std::size_t(kPlayerCast)].shadow_size : 0.6f,
                              (wpl ? wpl->tint_alpha : 1.0f) * float(pt >> 24) / 255.0f,
                              shadow_decal_ok(shadow_frame, {feet.x, fy + 0.05f, feet.z}, true, wpl ? wpl->flags12c : 0u,
                                              sfl > kNoFloor && feet.y - sfl <= 8.0f),   // +0x2b8: the player's ray is 8 long
-                             fn);
+                             fn, player_glow, 0xbfbfbfu);
                 shadow_flush(g, view, depth, shadows.tex, shadow_frame);
                 mirror_actor_quad(chr.dirs[facing], feet, fy, wpl ? wpl->scale : 1.0f, pt,     // view_sprites.inl
                                   (wpl ? wpl->tint_alpha : 1.0f) * float(pt >> 24) / 255.0f, cam.pos, cam.forward(),

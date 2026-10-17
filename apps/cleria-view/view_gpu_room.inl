@@ -32,6 +32,7 @@ struct WorldPipes {
     WGPURenderPipeline char_pipeline{}; // alpha-blended character/enemy sprites
     WGPURenderPipeline char_pipeline_add{}; // additive variant, for glow overlays (Topic selection wash)
     WGPURenderPipeline shadow_pipeline{}; // floor shadow decals (alpha-over, no depth write)
+    WGPURenderPipeline glow_pipeline{};   // the light2 under-glow: the shadow's decal, added (state 0x20681)
     WGPURenderPipeline floor_quad_pipe{}; // an actor's image on a mirror floor (preset 0x21641: fs_char, no depth write, unculled)
     WGPURenderPipeline darken_pipe{};     // a boss's darkening quad (preset 0x20649: dest x (1 - texture x diffuse))
     WGPURenderPipeline mat_pipe[4][2]{};  // blended YMO materials: [blend mode 1..3][z-write]
@@ -1222,6 +1223,9 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
     WGPURenderPipelineDescriptor spd = cpd; spd.depthStencil = &sds; spd.fragment = &sfs;
     spd.primitive.cullMode = WGPUCullMode_None;   // a flat floor decal must not be culled
     g.shadow_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &spd);
+    WGPUFragmentState lfs = afs; lfs.entryPoint = sv("fs_glow");     // texture x diffuse, SRCALPHA / ONE
+    WGPURenderPipelineDescriptor lpd = spd; lpd.fragment = &lfs;
+    g.glow_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &lpd);
     // An actor's image on a mirror floor, preset 0x21641 (FUN_005eb5b0 [BYTES 0x5eb5b0..0x5ebe59], decoded in
     // RENDER_LEFTOVERS.md 1.1): texture x diffuse, alpha = texture x TEXTUREFACTOR, SRCALPHA / INVSRCALPHA, Z test
     // without Z write, fog, CULLMODE NONE.

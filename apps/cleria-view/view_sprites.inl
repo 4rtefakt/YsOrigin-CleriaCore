@@ -361,9 +361,12 @@ static void draw_billboard_uv(Gpu& g, WGPUTextureView color, WGPUTextureView dep
     draw_quad(g, color, depth, g.char_pipeline, tex.bind, verts);
 }
 
+static SpriteTex g_light2;              // image 15 data\image\light2.dds: the under-glow's texture (SHADOWS.md 2.5)
 struct ShadowFx {
     SpriteTex tex;
     bool init(Gpu& g, const fs::path& asset_root) {
+        Dds l = load_dds(asset_root / "IMAGE" / "LIGHT2.DDS");
+        if (l.ok()) g_light2 = upload_rgba(g, l.width, l.height, l.data.data());
         Dds d = load_dds(asset_root / "IMAGE" / "SHADOW0.DDS");
         if (!d.ok()) return false;
         tex = upload_rgba(g, d.width, d.height, d.data.data());
@@ -394,8 +397,10 @@ static void draw_shadow(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
 // FUN_00474e10: per actor, either the flat quad FUN_00456da0 or -- [graphics] ShadowEffectLevel 1 for the
 // player, 2 for every actor in range -- the same texture laid on the room's own triangles (FUN_00456740), so
 // the shadow follows steps and slopes. Both fade and shrink with the actor's height above its shadow.
-// [not modelled] the fog of state 0x20641, a coloured +0x290, the light2 under-glow (+0x130 & 0x40000), the
-// veto of the object an actor stands on (+0x554), the moving map objects' own matrices (their triangles are
+// An actor with +0x130 & 0x40000 (the player in Darm's room, casts 0x26 / 0x29 / 0x2a / 0x3a) gets the light2
+// under-glow instead: the same quad or decal with light2.dds, its rgb = +0x290's, added (state 0x20681).
+// [not modelled] the fog of states 0x20641 / 0x20681, the tint's rgb in modulate(+0x290, +0x148) (its alpha is
+// taken), the veto of the object an actor stands on (+0x554), the moving map objects' own matrices (their triangles are
 // found where the room was last built); [approx] the depth offset (0.5% toward the eye, as the blood decals).
 static int g_shadow_level = 2;          // 0x765198, retail's default
 static int g_shadow_stat[3] = {0, 0, 0};   // the last frame's decals, decal triangles, quads (vstat)
@@ -405,6 +410,7 @@ struct ShadowFrame {
     bool has_player = false;
     Vec3 player{};                      // the player's position (+0x50)
     std::vector<RoomVertex> decal;      // this frame's decal triangles, drawn by shadow_flush
+    std::vector<RoomVertex> glow;       // ... and the light2 under-glows' (+0x130 & 0x40000)
     int decals = 0, tris = 0, quads = 0;
 };
 // FUN_00474cd0 [BYTES 0x474cd0..0x474e07]: the decal when +0x12c bit 2 is clear, the level allows this actor,
@@ -423,7 +429,7 @@ static bool shadow_decal_ok(const ShadowFrame& sf, const Vec3& B, bool is_player
 // [approx] a grid over the room's triangles stands for retail's AABB tree (a superset walk gives the same
 // picture below the cap); the turn by the camera yaw is left out (the texture is round); a triangle's normal is
 // its vertices' mean.
-static void shadow_decal(ShadowFrame& sf, const Vec3& B, float s, float a) {
+static void shadow_decal(ShadowFrame& sf, const Vec3& B, float s, float a, bool glow, std::uint32_t rgb) {
     struct Grid { WGPUBuffer key = nullptr; std::size_t nidx = 0; float x0 = 0, z0 = 0; int nx = 0, nz = 0;
                   std::vector<std::uint32_t> start, tris, stamp; std::uint32_t serial = 0; };
     static Grid gr;
@@ -470,6 +476,7 @@ static void shadow_decal(ShadowFrame& sf, const Vec3& B, float s, float a) {
     const int cz0 = cell(B.z - r, gr.z0, gr.nz), cz1 = cell(B.z + r, gr.z0, gr.nz);
     ++gr.serial;
     const float opacity_nx = 1.0f - std::clamp(a, 0.0f, 1.0f), k = 0.5f / s;
+    std::vector<RoomVertex>& out = glow ? sf.glow : sf.decal;
     int emitted = 0;
     for (int cz = cz0; cz <= cz1 && emitted < 341; ++cz)
         for (int cx = cx0; cx <= cx1 && emitted < 341; ++cx) {
@@ -495,8 +502,9 @@ static void shadow_decal(ShadowFrame& sf, const Vec3& B, float s, float a) {
                     if (!in) continue;
                 }
                 for (int i = 0; i < 3; ++i)
-                    sf.decal.push_back({v[i]->px + (sf.eye.x - v[i]->px) * 0.005f, v[i]->py + (sf.eye.y - v[i]->py) * 0.005f,
-                                        v[i]->pz + (sf.eye.z - v[i]->pz) * 0.005f, opacity_nx, 1, 0, u[i], 1.0f - w[i], 255, 255, 255, 0});
+                    out.push_back({v[i]->px + (sf.eye.x - v[i]->px) * 0.005f, v[i]->py + (sf.eye.y - v[i]->py) * 0.005f,
+                                   v[i]->pz + (sf.eye.z - v[i]->pz) * 0.005f, opacity_nx, 1, 0, u[i], 1.0f - w[i],
+                                   std::uint8_t(rgb >> 16), std::uint8_t(rgb >> 8), std::uint8_t(rgb), 0});
                 ++emitted;
             }
         }
@@ -507,13 +515,16 @@ static void shadow_decal(ShadowFrame& sf, const Vec3& B, float s, float a) {
 // normal (+0x298). Both shapes: k = 0.025 |B - A|, alpha - k and size - k, nothing when either is below 0
 // [BYTES 0x456da0.., 0x6bd0f8]. The quad (FUN_00456da0): centred B - forward x 0.15, its corners (+-s, 0, +-s)
 // through RotationZ(-n.x pi/3) then RotationX(n.z pi/3). [approx] its turn by the camera yaw is left out.
-static void shadow_actor(Gpu& g, WGPUTextureView color, WGPUTextureView depth, const SpriteTex& tex, ShadowFrame& sf,
-                         const Vec3& A, float floorY, float size, float alpha, bool decal, Vec3 n = {0, 1, 0}) {
+// `glow` = +0x130 & 0x40000: light2.dds, +0x290's `rgb`, added.
+static void shadow_actor(Gpu& g, WGPUTextureView color, WGPUTextureView depth, const SpriteTex& shadow_tex, ShadowFrame& sf,
+                         const Vec3& A, float floorY, float size, float alpha, bool decal, Vec3 n = {0, 1, 0},
+                         bool glow = false, std::uint32_t rgb = 0) {
+    const SpriteTex& tex = glow ? g_light2 : shadow_tex;
     if (!tex.tex || size == 0.0f) return;
     const Vec3 B{A.x, floorY + 0.05f, A.z};
     const float k = std::fabs(B.y - A.y) * 0.025f, a = alpha - k, s = size - k;
     if (a < 0.0f || s < 0.0f) return;
-    if (decal && sf.room) { ++sf.decals; shadow_decal(sf, B, s, a); return; }
+    if (decal && sf.room) { ++sf.decals; shadow_decal(sf, B, s, a, glow, rgb); return; }
     if (!(n.y > 0.001f)) n = {0, 1, 0};
     const float az = n.x * -1.0471976f, ax = n.z * 1.0471976f;                       // 0x6be05c, 0x6bd454
     const float cz = std::cos(az), sz = std::sin(az), cx = std::cos(ax), sx = std::sin(ax);
@@ -522,18 +533,23 @@ static void shadow_actor(Gpu& g, WGPUTextureView color, WGPUTextureView depth, c
     auto V = [&](float ox, float oz, float u, float v) -> RoomVertex {
         const float x1 = ox * cz, y1 = ox * sz;                    // RotationZ on (ox, 0, oz)
         const float y2 = y1 * cx - oz * sx, z2 = y1 * sx + oz * cx;   // RotationX
-        return {C.x + x1, C.y + y2, C.z + z2, nx, 1, 0, u, v, 255, 255, 255, 0};
+        return {C.x + x1, C.y + y2, C.z + z2, nx, 1, 0, u, v,
+                std::uint8_t(rgb >> 16), std::uint8_t(rgb >> 8), std::uint8_t(rgb), 0};
     };
     RoomVertex verts[4] = {V(-s, -s, 0, 1), V(s, -s, 1, 1), V(s, s, 1, 0), V(-s, s, 0, 0)};
-    draw_quad(g, color, depth, g.shadow_pipeline, tex.bind, verts);
+    draw_quad(g, color, depth, glow ? g.glow_pipeline : g.shadow_pipeline, tex.bind, verts);
     ++sf.quads;
 }
 // The decals of this frame so far: texture x diffuse, SRCALPHA / INVSRCALPHA, z test without z write, unculled,
 // clamped (state 0x20641, SHADOWS.md 2.5).
-static void shadow_flush(Gpu& g, WGPUTextureView color, WGPUTextureView depth, const SpriteTex& tex, ShadowFrame& sf) {
-    if (sf.decal.empty() || !tex.tex) { sf.decal.clear(); return; }
-    static WGPUBindGroup bind = nullptr;
-    static WGPUTextureView bound = nullptr;
+// The light2 under-glows' decals follow, added (state 0x20681).
+static void shadow_flush_one(Gpu& g, WGPUTextureView color, WGPUTextureView depth, const SpriteTex& tex,
+                             std::vector<RoomVertex>& decal, WGPURenderPipeline pipe, int slot) {
+    if (decal.empty() || !tex.tex) { decal.clear(); return; }
+    static WGPUBindGroup binds[2] = {};
+    static WGPUTextureView bounds[2] = {};
+    WGPUBindGroup& bind = binds[slot];
+    WGPUTextureView& bound = bounds[slot];
     if (bound != tex.view) {
         WGPUSamplerDescriptor sd = {};
         sd.addressModeU = sd.addressModeV = sd.addressModeW = WGPUAddressMode_ClampToEdge;
@@ -541,9 +557,11 @@ static void shadow_flush(Gpu& g, WGPUTextureView color, WGPUTextureView depth, c
         bind = tex_bindgroup(g, tex.view, wgpuDeviceCreateSampler(g.device, &sd));
         bound = tex.view;
     }
-    const std::uint64_t size = sf.decal.size() * sizeof(RoomVertex);
-    static WGPUBuffer vb = nullptr;
-    static std::uint64_t cap = 0;
+    const std::uint64_t size = decal.size() * sizeof(RoomVertex);
+    static WGPUBuffer vbs[2] = {};
+    WGPUBuffer& vb = vbs[slot];
+    static std::uint64_t caps[2] = {};
+    std::uint64_t& cap = caps[slot];
     if (size > cap) {
         if (vb) wgpuBufferRelease(vb);
         cap = size * 2;
@@ -551,7 +569,7 @@ static void shadow_flush(Gpu& g, WGPUTextureView color, WGPUTextureView depth, c
         bd.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst; bd.size = cap;
         vb = wgpuDeviceCreateBuffer(g.device, &bd);
     }
-    wgpuQueueWriteBuffer(g.queue, vb, 0, sf.decal.data(), size);
+    wgpuQueueWriteBuffer(g.queue, vb, 0, decal.data(), size);
     WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g.device, nullptr);
     WGPURenderPassColorAttachment ca = {};
     ca.view = color; ca.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
@@ -561,16 +579,20 @@ static void shadow_flush(Gpu& g, WGPUTextureView color, WGPUTextureView depth, c
     WGPURenderPassDescriptor rp = {};
     rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; rp.depthStencilAttachment = &da;
     WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
-    wgpuRenderPassEncoderSetPipeline(pass, g.shadow_pipeline);
+    wgpuRenderPassEncoderSetPipeline(pass, pipe);
     wgpuRenderPassEncoderSetBindGroup(pass, 0, g.ubind, 0, nullptr);
     wgpuRenderPassEncoderSetBindGroup(pass, 1, bind, 0, nullptr);
     wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vb, 0, size);
-    wgpuRenderPassEncoderDraw(pass, std::uint32_t(sf.decal.size()), 1, 0, 0);
+    wgpuRenderPassEncoderDraw(pass, std::uint32_t(decal.size()), 1, 0, 0);
     wgpuRenderPassEncoderEnd(pass); wgpuRenderPassEncoderRelease(pass);
     WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
     wgpuQueueSubmit(g.queue, 1, &cmd);
     wgpuCommandBufferRelease(cmd); wgpuCommandEncoderRelease(enc);
-    sf.decal.clear();
+    decal.clear();
+}
+static void shadow_flush(Gpu& g, WGPUTextureView color, WGPUTextureView depth, const SpriteTex& tex, ShadowFrame& sf) {
+    shadow_flush_one(g, color, depth, tex, sf.decal, g.shadow_pipeline, 0);
+    shadow_flush_one(g, color, depth, g_light2, sf.glow, g.glow_pipeline, 1);
 }
 
 // ---- Toal's trail (SHADOWS.md 5, RENDER_LEFTOVERS.md 3) -----------------------------------------------------

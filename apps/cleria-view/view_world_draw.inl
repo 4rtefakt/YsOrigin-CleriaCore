@@ -390,8 +390,13 @@ static void draw_enemies(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
                 const float size = casts && a.cast_id >= 0 && std::size_t(a.cast_id) < casts->casts.size()
                                        ? casts->casts[std::size_t(a.cast_id)].shadow_size : 0.6f;
                 // [approx] +0x2b8 (floor within 4 below) from the kept floor height; an enemy's quad is not tilted.
+                // FUN_00459410's cast switch (+0x124) gives casts 0x26 / 0x29 / 0x2a / 0x3a +0x130 |= 0x40000 and an rgb
+                // in +0x290 [EXPORT 00459410.c:245-288]: their shadow is the light2 under-glow.
+                const std::uint32_t glow = a.cast_id == 0x26 ? 0xffffffu : a.cast_id == 0x29 || a.cast_id == 0x2a ? 0xff8000u
+                                         : a.cast_id == 0x3a ? 0x4000ffu : 0u;
                 shadow_actor(g, color, depth, shadow, *sf, a.pos, fy, size, a.tint_alpha * float(a.tint >> 24) / 255.0f,
-                             shadow_decal_ok(*sf, {a.pos.x, fy + 0.05f, a.pos.z}, false, a.flags12c, a.pos.y - fy <= 4.0f));
+                             shadow_decal_ok(*sf, {a.pos.x, fy + 0.05f, a.pos.z}, false, a.flags12c, a.pos.y - fy <= 4.0f),
+                             {0, 1, 0}, glow != 0, glow);
             }
         }
         shadow_flush(g, color, depth, shadow, *sf);
