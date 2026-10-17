@@ -1546,8 +1546,11 @@ CASES.update({
         # Re-pinned 2026-10-12 (the down thrust's landing effect 0xc, ADOL.md §13: the pilot's air presses land as
         # thrusts, and each effect's particles draw from the shared xorshift): the same fight, slower — at t4980 the
         # pool still had 34 of 7000 (the kill was at t4569) — so the run is 600 ticks longer.
+        # Re-pinned 2026-10-17 (#178: the head is struck only through its kind-9 sphere, NYGTILGER.md U1): with the
+        # segments gone the pilot reaches that sphere only when the head dips to the floor (mode 3), and the kill
+        # comes at t13285, so the run ends at t13800 (was 5600).
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=40;9:flag=205,1;10:saveload;40:every=20,700,ok;"
-              "720:every=30,5600,boss2;726:every=30,5600,atk;800:every=50,4200,bullets;5600:quit",
+              "720:every=30,13800,boss2;726:every=30,13800,atk;800:every=50,4200,bullets;13800:quit",
         expect=["[boss02] Nygtilger: pool 7000 (head 700, segments 350) lv 16", "[bullet] kind 36 effect 348",
                 "a plasma ball strikes (SE 221)", "a plasma ball strikes (SE 222)", "a plasma ball strikes (SE 223)",
                 "[bullet] kind 35 effect 343", " carried", "[bullet] kind 35 effect 343", " flying",
