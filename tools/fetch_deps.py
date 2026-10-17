@@ -187,6 +187,7 @@ def fetch_curl(dest, jobs):
                                "-DHTTP_ONLY=ON", "-DCURL_DISABLE_LDAP=ON"] + [f"-D{o}=OFF" for o in off])
         subprocess.check_call(["cmake", "--build", bld, "--parallel", str(jobs)])
         subprocess.check_call(["cmake", "--install", bld])
+        shutil.copy2(os.path.join(src, "COPYING"), os.path.join(dest, "COPYING"))   # the package's licenses/curl.txt
 
 
 def main():

@@ -59,7 +59,7 @@ jobs:
       - name: macOS packages
         if: runner.os == 'macOS'
         run: |
-          brew install ninja pkgconf ffmpeg curl
+          brew install ninja pkgconf curl
           echo "CMAKE_PREFIX_PATH=$(brew --prefix curl)" >> "$GITHUB_ENV"
 
       - name: MSVC environment
@@ -73,8 +73,10 @@ jobs:
         run: python3 tools/fetch_deps.py || python tools/fetch_deps.py
 
       # A minimal shared FFmpeg (AVI + MPEG-4 only) that ships in the package, for the demo movies.
-      - name: FFmpeg (Linux)
-        if: runner.os == 'Linux'
+      - name: FFmpeg (Linux, macOS)
+        if: runner.os != 'Windows'
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
         run: |
           tools/release/build_ffmpeg.sh third_party/ffmpeg
           echo "PKG_CONFIG_PATH=$PWD/third_party/ffmpeg/lib/pkgconfig" >> "$GITHUB_ENV"

@@ -15,5 +15,4 @@ A path in a comment of this repository translates like this:
 What stays here: `shell_re/` (CleriaCore's own shell, settings and mod API: the modding guide links to it),
 `combat_re/ghidra_scripts/` (the Ghidra scripts the `ghidra-decompile` skill writes and runs), and the two
 lists the tools read (`xso_ops/op_handler_map.txt`, `re_coverage/all_functions.txt`). yso's
-`tools/collect.py` still copies those, and any note committed here later, into yso. A few run logs, a raw
-table and the scraped wiki pages (`wiki_re/raw/`) were never collected and stay too.
+`tools/collect.py` still copies those, and any note committed here later, into yso.

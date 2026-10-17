@@ -1,13 +1,13 @@
 #!/bin/sh
-# A minimal shared FFmpeg for the Linux release (the demo movies, CLERIA_FFMPEG): the AVI demuxer, the
-# MPEG-4 Part 2 (XviD) decoder and libswscale, nothing else and no external libraries, so the four .so
-# files ship next to cleria-view and load on any distribution. LGPL 2.1+ (no GPL or nonfree parts).
+# A minimal shared FFmpeg for the Linux and macOS releases (the demo movies, CLERIA_FFMPEG): the AVI demuxer, the
+# MPEG-4 Part 2 (XviD) decoder and libswscale, nothing else and no external libraries, so the four shared
+# libraries ship with cleria-view and load on any distribution or Mac. LGPL 2.1+ (no GPL or nonfree parts).
 #
 #   tools/release/build_ffmpeg.sh <prefix> [jobs]     then PKG_CONFIG_PATH=<prefix>/lib/pkgconfig
 set -eu
 VERSION=7.1.1
 prefix=$(mkdir -p "$1" && cd "$1" && pwd)
-jobs=${2:-$(nproc)}
+jobs=${2:-$(nproc 2>/dev/null || sysctl -n hw.ncpu)}
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 curl -fsSL "https://ffmpeg.org/releases/ffmpeg-$VERSION.tar.xz" | tar -xJ -C "$tmp"

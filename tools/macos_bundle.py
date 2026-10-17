@@ -6,7 +6,8 @@
 Contents/MacOS holds cleria-view (the bundle's executable) and cleria-gamedata; Contents/Resources what
 cleria-view reads from its own folder (hud_font.bin, fonts/: SDL_GetBasePath() is Resources/ inside a
 bundle); Contents/Frameworks every non-system dylib they load (SDL3, wgpu-native, and with CLERIA_FFMPEG /
-CLERIA_CURL Homebrew's FFmpeg and libcurl with their own dependencies), each renamed @rpath/<name>. The
+CLERIA_CURL FFmpeg (tools/release/build_ffmpeg.sh in a release, else Homebrew's) and Homebrew's libcurl
+with their own dependencies), each renamed @rpath/<name>. The
 bundle is signed ad hoc, which Apple Silicon requires to run; it is not notarized, so a downloaded copy
 needs "Open" from Finder's context menu the first time (or `xattr -dr com.apple.quarantine CleriaCore.app`).
 Writes <out>/CleriaCore.app and <out>/CleriaCore-macos-<arch>.zip.
