@@ -441,6 +441,35 @@ int main() {
         SettingsStore st3;
         check(st3.load(other) == SettingsStore::Origin::Defaults && fs::exists(other) &&
               slurp(other).rfind("IniVersion=0x100\r\n", 0) == 0, "no file, no retail: defaults, written with IniVersion");
+        {   // a file with no IniVersion (hand-written, or older than the versioned format). The retail config tool
+            // rewrites such a file from its zeroed state on first open (yso notes/core/STARTUP_CONFIG.md §8.2,
+            // seen on a scratch install 2026-10-17: sound off, volumes 0, every Assign{} empty, Language 0).
+            // CleriaCore reads it as the game does (FUN_0040d1d0: only the gated keys are skipped) and saves it
+            // with IniVersion, the volumes and the bindings kept.
+            const fs::path old = root / "old" / "yso_win.ini";
+            spit(old, "[game]\r\nLanguage=1\r\n[sound]\r\nBgmVolume=85\r\nEffectVolume=128\r\nPlayEffect=1\r\n"
+                      "[input]\r\nGamePad=1\r\nFileIndex=1\r\nAssign{KEY_JUMP}=\"/\"\r\n");
+            SettingsStore so;
+            check(so.load(old) == SettingsStore::Origin::Loaded && so.s.ini_version == 0 &&
+                  so.s.sound.bgm_volume == 85 && so.s.sound.effect_volume == 128 && so.s.game.language == 1 &&
+                  so.s.input.assign[input::KEY_JUMP] != input::kUnbound,
+                  "no IniVersion: volumes, Language and the bindings are read (no tool-style zeroing)");
+            so.touch();
+            SettingsStore so2;
+            check(so.save() && slurp(old).rfind("IniVersion=0x100\r\n", 0) == 0 &&
+                  so2.load(old) == SettingsStore::Origin::Loaded && so2.s.ini_version == 0x100 &&
+                  so2.s.sound.bgm_volume == 85 && so2.s.sound.effect_volume == 128 &&
+                  so2.s.input.assign[input::KEY_JUMP] == so.s.input.assign[input::KEY_JUMP],
+                  "...and saved with IniVersion=0x100 first, the volumes and the bindings kept");
+        }
+        {   // no GamePadID: retail leaves App_Main's error-buffer address there (FUN_0040bf50 reads its EDX
+            // as the default; seen on a scratch install 2026-10-17: g_PadDeviceIndex 0x764b4c = 0x1afc80), so
+            // with pads attached it ends on the last one. CleriaCore keeps its default, the first pad.
+            Ini d;
+            d.parse("IniVersion=0x100\n[input]\nGamePad=1\n");
+            Settings s; read_retail(d, s);
+            check(s.input.game_pad == 1 && s.input.game_pad_id == 1, "no GamePadID: the first pad (1), not retail's stack address");
+        }
         SettingsStore m;
         m.use_memory_defaults();
         check(m.memory_only() && !m.save() && m.s.sound.bgm_volume == 512, "memory mode: defaults, never writes");
