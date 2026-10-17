@@ -282,6 +282,10 @@ struct AiEffect {
     // not renewed) and the effect is let go. dying_tag >= 0: no spawn; FUN_0047a7c0 on them (M700).
     int release_tag = -1, dying_tag = -1;
     bool attach_full = false;    // with attach: FUN_00451c20 mode 1 (the actor's full matrix), not mode 2
+    // With attach_full: FUN_00451c20's own local T(local) x R(yaw, pitch, roll) x S in the actor's frame (scale = `scale`)
+    // in place of the spawn point's offset.
+    bool attach_local = false;
+    Vec3 local{}, local_ypr{};
     Vec3 rot{};
     float power = 0, knock = 1;
     int rtype = 0, status = 0;

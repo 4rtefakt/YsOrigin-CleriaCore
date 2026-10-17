@@ -12,8 +12,7 @@
 // The handler's extras live here too: the partner HP link, the hit counter, the bats'
 // crowding fade, the unconditional arena clamp, Durable after lim(d) hits, and (via the
 // death hook) killing the flock when it dies.
-// [not modelled] effect attachment (FUN_00451c20 —
-// the claw slashes are placed, not parented); the player-dead helper's forced section 2;
+// [not modelled] the player-dead helper's forced section 2;
 // the R() draw FUN_00459410 may make inside a child spawn.
 #include <algorithm>
 #include <cmath>
@@ -415,9 +414,12 @@ AiOut m460(EnemyAi& a, const EnemyAiParams& p, const AiEnv& e) {
             if (const int m = e.aso_marker; m != 0) {              // Marker(298): the claw slashes
                 out.set_marker = 0;
                 float lx = 0;
-                for (int k = 0; k < 3; ++k) {
-                    out.effects.push_back({m, {pos.x + std::cos(a.heading) * lx, pos.y, pos.z + std::sin(a.heading) * lx},
-                                           ratio, false});
+                for (int k = 0; k < 3; ++k) {                       // FUN_00451c20(fx, A+0x20, L, Rt, S, 1): parented
+                    AiEffect fx;
+                    fx.id = m; fx.pos = pos; fx.scale = ratio;
+                    fx.attach = true; fx.attach_full = true; fx.attach_local = true;
+                    fx.local = {lx, 0.0f, 0.0f}; fx.local_ypr = {-0.5235988f, 0.0f, 1.0471976f};
+                    out.effects.push_back(fx);
                     lx -= ratio * 0.8f;
                 }
             }
