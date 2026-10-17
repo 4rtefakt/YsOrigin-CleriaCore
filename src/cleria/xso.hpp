@@ -641,6 +641,9 @@ struct XsoVm {
     // logs it under CLERIA_XSO_LOG=1; `cleria-xso --op-status` classifies every sub-op with it
     // (tools/xso_floor_ops.py, build/event_re/FLOOR13_OPS.md).
     std::function<void(std::uint32_t sub)> on_unhandled;
+    // The Wait_ChrMoving watchdog (CleriaCore's own, as the retail Archipelago client's): a script that has stood
+    // kChrMovingLimit frames on one 0x100 is let through, and this is told the actor's id. Null = silent.
+    std::function<void(int id)> on_moving_timeout;
     // The running instance's name, set by ScriptManager around each tick ("" in a bare run()).
     std::string script_name;
     std::int32_t g_flags[0x200] = {0};
@@ -776,11 +779,19 @@ struct XsoVm {
     const Xso* co_script = nullptr;   // bound script (caller keeps it alive); null = inactive
     std::uint32_t co_pc = 0;          // saved PC (engine GoScript+0x1e4)
     std::int32_t co_wait = 0;         // frame countdown (engine +0x1e8)
+    // Frames the script has stood on its current Wait_ChrMoving (CleriaCore's own: the watchdog in eval_wait).
+    // An actor told to walk where it cannot get (a scene's walk issued mid-animation) never stops, and the
+    // script and the player's controls stayed there for good. No walk in the game takes anywhere near this long.
+    static constexpr int kChrMovingLimit = 900;   // [H] 15 s, the retail client's 15000 ms
+    int co_moving = 0;
+    // CleriaCore's own (the mods' cleria.script.stop, API 7): set during an op (a grant filter's call), the script
+    // ends right after that op, as if it had run off its end.
+    bool stop_req = false;
     int burst_ops = 0;                // ops the last tick() ran (0: it only counted a Wait_Time down)
 
     // Begin a resumable run of `s` from `entry`. Shares g_flags; resets acc/pc/wait.
     void co_begin(const Xso& s, std::uint32_t entry = 0) {
-        co_script = &s; co_pc = entry; co_wait = 0; acc = 0;
+        co_script = &s; co_pc = entry; co_wait = 0; co_moving = 0; acc = 0;
     }
     bool co_active() const { return co_script != nullptr; }
     // Run one frame: count down a wait, else burst until a Wait_* parks or the script ends.
@@ -839,6 +850,7 @@ struct ScriptManager {
         std::unordered_map<int, std::int32_t> locals;
         bool finished = false;
         int fix_slot = -1;                 // +0x230: the fix slot this script holds (-1 none)
+        int moving = 0;                    // XsoVm::co_moving: frames on its current Wait_ChrMoving
         XsoVm::Vars vars;                  // +0x244..: $I/$F/$S
         int owner = 0;                     // +0x240: the bound actor (13 = the player)
         bool multi = false;                // +0x238: AllowMultiInstance (0xb5)
@@ -913,6 +925,9 @@ struct ScriptManager {
     // wait for `patience` steps (a wait on the fight's end), or counts a Wait_Time longer than `long_wait` (a
     // timer of the fight, not a scene's choreography). Returns whether any is still being run.
     bool skip_tail_step(int patience, int long_wait);
+    // cleria.script.stop (API 7; not retail): the script being ticked now (a filter is answering one of its ops) ends
+    // after that op. False when no script is running.
+    bool stop_current() { if (!cur_inst_) return false; vm.stop_req = true; return true; }
 
   private:
     void tick_inst(Inst& in);          // swap regs into `vm`, run one frame, save back

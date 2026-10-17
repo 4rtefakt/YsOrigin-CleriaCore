@@ -482,7 +482,7 @@ cleria.notice("Something happened", "My Mod")     -- a notice card (5 s)
 ## 8. Net, JSON, commands, speedrun
 
 ```lua
-local ws = cleria.net.websocket()                 -- the WinHTTP WebSocket (src/cleria/net/websocket)
+local ws = cleria.net.websocket()                 -- the WebSocket of src/cleria/net/websocket
 ws:open("wss://example.org:443/")                 -- or "host:port": tries wss://, then ws://
 cleria.events.on("frame", function()
     for _, e in ipairs(ws:poll()) do              -- never blocks: {kind = "open" | "message" | "close", text, error}
@@ -493,6 +493,9 @@ ws:send(cleria.json.encode({cmd = "Hello", tags = cleria.json.array()}))
 -- ws:state() -> "idle" | "connecting" | "open" | "closing" | "closed"; ws:url(); ws:close()
 ```
 
+- The socket offers permessage-deflate and inflates what the server compresses (Archipelago's MultiServer
+  warns clients without it). Windows: its own framing over winsock and SChannel (TLS 1.2), WinHTTP after a TLS
+  failure; Linux / macOS: the same framing over a libcurl connection. A mod sees text messages either way.
 - `cleria.json.encode(v [, {indent = n}])`, `cleria.json.decode(s) -> v | nil, err` (src/cleria/json: int64
   exact, NaN accepted). JSON `null` is `cleria.json.null`; decoded arrays keep an array mark, so they re-encode
   as arrays; `cleria.json.array(t)` marks a table (an empty table is otherwise an object); integer keys become
@@ -641,7 +644,7 @@ across it (a death counter) holds it in a Lua variable at `death` and writes it 
 
 | call | |
 |---|---|
-| `game.state()` | `"title"` (no game runs), `"play"`, `"cutscene"` (a script holds the world), `"dialog"` (a text window), `"menu"` (a script's menu: a statue's blessings, a choice), `"book"` (the pause book), `"panel"` (the F1 panel), `"gameover"`. The most covering one wins: the panel over the book over a window over a cutscene |
+| `game.state()` | `"title"` (no game runs), `"play"`, `"cutscene"` (a script holds the world), `"dialog"` (a text window), `"menu"` (a script's menu: a statue's blessings, a choice), `"book"` (the pause book), `"map"` (the book's warp map, the Crystal's: the statues' 22 bars; added 2026-10-16, an older build says `"book"` there), `"panel"` (the F1 panel), `"gameover"`. The most covering one wins: the panel over the book over a window over a cutscene |
 | `game.room_title()` | the room's own name as the game's data has it (`"4F Forward Passage 1"`, `"Outer Corridor 1"`); `""` for a room without one |
 | `game.floor()` | the floor that name starts with, 1..25, or `nil` when it names none (the outer corridors, Rado's Annex, the summit) |
 | `game.zone()` | `1..7` and the zone's name (`1, "Wailing Blue"` ... `7, "Tower Summit"`), from the room number; `nil` elsewhere |
@@ -892,6 +895,9 @@ end)
 
 - `cleria.script.run(name)` starts a script as the action button would, the player its owner; `@name` is a script of
   S_COMMON. False when there is no such script or it is already running.
+- `cleria.script.stop()`, called from a `content.add_filter` function: the script whose op the filter is answering
+  ends right after that op, as if it had run off its end (its Fix is released). The Archipelago mod ends an
+  elemental altar's event once its suppressed skill and its check have both gone by. False outside a filter call.
 - `cleria.script.add_filter(fn)`: `"suppress"` refuses the start, as if the script did not exist (the same filter as
   `world.add_filter` with the kind `"script"`). [H] A room's logic lives in these scripts: refusing one that sets a
   flag or opens a door leaves the room as it was. Refuse only what you know.
@@ -1260,6 +1266,7 @@ death.
 cleria.audio.play("sfx/ding.wav", 0.8)                  -- a WAV of the mod's folder
 cleria.audio.music("music/theme.ogg")                   -- an Ogg Vorbis file of the mod's folder
 cleria.game.new_game(2)                                 -- a new game as Hugo, now
+cleria.game.skip_cutscenes(true)                        -- every cutscene and movie skips until (false)
 cleria.save.card("Seed 4F2A  floor 12")                 -- shown on this save's card
 ```
 
@@ -1274,6 +1281,12 @@ cleria.save.card("Seed 4F2A  floor 12")                 -- shown on this save's 
   once (no menu): the character (1..3, default the current one), the difficulty as `game.difficulty()` gives it
   (0..4, default the current one), the normal outfit. Nothing is saved first. The `new_game` event follows.
   `game.to_title()` and this one end the game loop on the tick they are called.
+- `game.skip_cutscenes(on)`: while any mod holds it on, every cutscene and movie skips as it starts, as the shell's
+  Cutscene skip "Always" does (a choice inside one still waits; what the player starts, a talk, a statue, a shop,
+  a chest, plays and skips on a press). Off gives the player's own mode back. Not saved: a mod sets it again after
+  a load. The Archipelago mod holds it from a random-start New Game until its warp to the start statue. On
+  CleriaOre (the retail exe) a cutscene's waits collapse instead (its timed pauses, walks, pans, fades; never a
+  scene load) and the intro movies are not opened.
 - `save.card(text)`: up to 40 characters, kept in the save and shown after the area's name on the save's card in the
   Save and Load pages (the pause book's and the title's). `card(nil)` removes it. False while the save is not ready.
   [H] The card's line is not widened for it: a long area name and a long text run past the card's edge.
@@ -1351,5 +1364,5 @@ mod can test `cleria.api_version >= 4` (or the function for `nil`) before it use
 | 4 (2026-10-09) | the events `boss_defeated`, `item_used`, `door_opened` (§3); `game.save(slot)` (§4) |
 | 5 (2026-10-09) | the blessing shop: `cleria.shop.add_filter` and the event `blessing_bought` (§5.1) |
 | 6 (2026-10-10) | `cleria.combat.add_filter` for `"exp"`, `"sp"`, `"damage"`, `"drop"`, `"pickup"` (§5.2); the events `enemy_killed`, `pickup_collected` (§3); `player.stats`, `player.set_modifier` / `modifier`, `player.add_exp` (§4, §4.1); `game.spawn_pickup` (§5.2) |
-| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` (§12.14), `cleria.combat.damage` / `heal` / `hurt`, `cleria.player.tune` (§12.15), `cleria.net.udp` / `tcp` / `http` (§12.16), `cleria.camera`, `hud.show`, `game.pause`, `world.boss`, `enemy_spawned` (§12.17), `content.define_monster` / `define_boss` / `morph`, `world.form` (§12.18), `puppet_hit`, `combat.strike`, `world.snapshot` / `apply` (§12.19), `d:world_*`, `p:table` / `list` / `image`, `player.set_look`, the `"skill"` filter (§12.20), `ui.shop`, `content.define_item` / `define_skill` / `define_room` / `define_character` (§12.21), `audio.play`, `audio.music(file)`, `game.new_game`, `save.card` (§12.22), `mods.command` / `commands` / `log_lines` / `reload`, `ui.console` (§12.23), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
+| 7 (2026-10-13) | §12: timers (`cleria.after`, `every`, `cancel`), `cleria.rng`, `cleria.mods`, `cleria.bus`, the events `retry`, `level_up`, `state_changed`, `floor_changed`, `enemy_hit`, `player_hit`, `load.retry`, `game.state` / `room_title` / `floor` / `zone` / `difficulty` / `play_time`, `cleria.world.actors` / `actor` / `to_screen`, `cleria.input` (§12.9), `cleria.ui.window` / `choose` / `message`, `p:text`, `p:progress` (§12.10), `cleria.world.add_filter` (`"spawn"`, `"exit"`), `world.spawn` / `remove` / `set_actor` (§12.11), `cleria.audio`, `cleria.screen` (§12.12), `cleria.world.puppet` / `set_puppet` / `remove_puppet`, `player.pose` (§12.13), the events of §12.14, `cleria.script.run` / `add_filter` / `stop` (§12.14), `cleria.combat.damage` / `heal` / `hurt`, `cleria.player.tune` (§12.15), `cleria.net.udp` / `tcp` / `http` (§12.16), `cleria.camera`, `hud.show`, `game.pause`, `world.boss`, `enemy_spawned` (§12.17), `content.define_monster` / `define_boss` / `morph`, `world.form` (§12.18), `puppet_hit`, `combat.strike`, `world.snapshot` / `apply` (§12.19), `d:world_*`, `p:table` / `list` / `image`, `player.set_look`, the `"skill"` filter (§12.20), `ui.shop`, `content.define_item` / `define_skill` / `define_room` / `define_character` (§12.21), `audio.play`, `audio.music(file)`, `game.new_game`, `game.skip_cutscenes`, `save.card` (§12.22), `mods.command` / `commands` / `log_lines` / `reload`, `ui.console` (§12.23), the writes of §12.8 (`player.set_position`, `equip`, `set_status`, `game.goto_room`, `set_speed`, `load` ...), a x0 stat modifier, `cleria.clipboard`, `open_url`, `locale`; more as `API7.md` fills |
 | no level (2026-10-09) | `game.unlock_character` (§4), `save.set_profile` / `save.profile` (§6.1): test the function for `nil` |

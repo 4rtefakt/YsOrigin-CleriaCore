@@ -1022,6 +1022,10 @@ int l_game_new_game(lua_State* L) {                      // ([character 1..3 [, 
     lua_pushboolean(L, op(L, "new_game", v));
     return 1;
 }
+int l_game_skip_cutscenes(lua_State* L) {                // (on): while on, every cutscene and movie skips as it starts
+    lua_pushboolean(L, op(L, "skip_cutscenes", {lua_toboolean(L, 1) ? 1.0 : 0.0}));
+    return 1;
+}
 int l_audio_stop_music(lua_State* L) {                   // ([fade in seconds])
     lua_pushboolean(L, op(L, "bgm_stop", {std::clamp(luaL_optnumber(L, 1, 1.0), 0.0, 30.0) * 1000.0}));
     return 1;
@@ -1044,7 +1048,7 @@ void open_api7_av(lua_State* L) {                        // the cleria table is 
     lua_newtable(L);
     set_funcs(L, audio);
     lua_setfield(L, -2, "audio");
-    static const luaL_Reg game[] = {{"new_game", l_game_new_game}, {nullptr, nullptr}};
+    static const luaL_Reg game[] = {{"new_game", l_game_new_game}, {"skip_cutscenes", l_game_skip_cutscenes}, {nullptr, nullptr}};
     lua_getfield(L, -1, "game");
     set_funcs(L, game);
     lua_pop(L, 1);
@@ -1115,6 +1119,7 @@ namespace {
 
 // ---- cleria.script: the game's own scripts (XSO) ----------------------------------------------------------------
 int l_script_run(lua_State* L) { lua_pushboolean(L, op(L, "script_run", {}, str_arg(L, 1))); return 1; }   // (name) -> started
+int l_script_stop(lua_State* L) { lua_pushboolean(L, op(L, "script_stop")); return 1; }   // () : the script a filter answers ends after this op
 int l_script_add_filter(lua_State* L) {                  // (fn(q)) : q = {name, room, owner}; "suppress" refuses the start
     luaL_checktype(L, 1, LUA_TFUNCTION);
     lua_pushvalue(L, 1);
@@ -1123,7 +1128,7 @@ int l_script_add_filter(lua_State* L) {                  // (fn(q)) : q = {name,
 }
 
 void open_api7_script(lua_State* L) {                    // the cleria table is on top of the stack
-    static const luaL_Reg fns[] = {{"run", l_script_run}, {"add_filter", l_script_add_filter}, {nullptr, nullptr}};
+    static const luaL_Reg fns[] = {{"run", l_script_run}, {"add_filter", l_script_add_filter}, {"stop", l_script_stop}, {nullptr, nullptr}};
     lua_newtable(L);
     set_funcs(L, fns);
     lua_setfield(L, -2, "script");
@@ -1217,12 +1222,14 @@ int l_udp_gc(lua_State* L) { return sock_gc<UdpUd>(L, kUdpMt); }
 int l_udp_bind(lua_State* L) {                           // ([port [, any]]) -> the port, or false, why
     std::string err;
     net::UdpSocket& s = udp_check(L);
+    if (!M(L).limits().network) return push_fail(L, "no network here");
     if (!s.bind(int(luaL_optinteger(L, 2, 0)), lua_isnoneornil(L, 3) || lua_toboolean(L, 3), &err)) return push_fail(L, err);
     lua_pushinteger(L, s.port());
     return 1;
 }
 int l_udp_send(lua_State* L) {                           // (host, port, data) -> true, or false, why
     std::string err;
+    if (!M(L).limits().network) return push_fail(L, "no network here");
     if (!udp_check(L).send_to(str_arg(L, 2), int(luaL_checkinteger(L, 3)), bytes_arg(L, 4), &err)) return push_fail(L, err);
     lua_pushboolean(L, 1);
     return 1;
@@ -1247,12 +1254,14 @@ int l_tcp_gc(lua_State* L) { return sock_gc<TcpUd>(L, kTcpMt); }
 int l_tcp_connect(lua_State* L) {                        // (host, port [, timeout seconds]) : "open" or "close" follows in poll()
     const lua_Integer port = luaL_checkinteger(L, 3);
     if (port < 1 || port > 65535) return luaL_argerror(L, 3, "a port is 1..65535");
+    if (!M(L).limits().network) return 0;
     tcp_check(L).connect(str_arg(L, 2), int(port), int(std::clamp(luaL_optnumber(L, 4, 10.0), 1.0, 60.0) * 1000.0));
     return 0;
 }
 int l_tcp_listen(lua_State* L) {                         // ([port [, any]]) -> the port, or false, why
     std::string err;
     net::TcpSocket& s = tcp_check(L);
+    if (!M(L).limits().network) return push_fail(L, "no network here");
     if (!s.listen(int(luaL_optinteger(L, 2, 0)), lua_isnoneornil(L, 3) || lua_toboolean(L, 3), &err)) return push_fail(L, err);
     lua_pushinteger(L, s.port());
     return 1;
@@ -1320,6 +1329,7 @@ int l_net_http(lua_State* L) {                           // ({url =, method =, b
         }
     }
     lua_pop(L, 1);
+    if (!m.limits().network) return 0;
     auto job = std::make_shared<HttpJob>();
     lua_pushvalue(L, 2);
     m.http_jobs_.emplace_back(job, luaL_ref(L, LUA_REGISTRYINDEX));

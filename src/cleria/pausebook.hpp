@@ -171,6 +171,7 @@ class PauseBook {
     // FUN_005a4fd0(ctx): 0 = the pause book, 1 = straight into the Save list (the statue).
     void open(const BookModel& m, int ctx = 0);
     bool is_open() const { return open_; }
+    bool map_open() const { return open_ && pstate_ == 3; }           // the warp map (the Use popup's state 3)
     void close() { open_ = false; }
     void update(const BookInput& in, BookModel& m, BookEvents& ev);   // FUN_005a5130 (a real step)
     void draw(DrawList& out, const BookModel& m) const;              // FUN_005a5d50

@@ -1066,6 +1066,11 @@ int l_ws_gc(lua_State* L) {
 int l_ws_open(lua_State* L) {
     WsUd& u = ws_check(L);
     const std::string addr = str_arg(L, 2);
+    if (!M(L).limits().network) {
+        lua_pushboolean(L, 0);
+        lua_pushstring(L, "no network here");
+        return 2;
+    }
     if (net::candidate_urls(addr).empty()) {
         lua_pushboolean(L, 0);
         lua_pushstring(L, "not a websocket address");

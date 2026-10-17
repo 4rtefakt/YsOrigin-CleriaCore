@@ -37,7 +37,6 @@ add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/enemy_ai.cpp
   src/cleria/xso.cpp
   src/cleria/sev.cpp
-  src/cleria/items.cpp
   src/cleria/enemies.cpp
   src/cleria/cast.cpp
   src/cleria/gameinfo.cpp
@@ -90,8 +89,6 @@ add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/world.cpp
   src/cleria/input_map.cpp
   src/cleria/mouse.cpp
-  src/cleria/vfs.cpp
-  src/cleria/mods.cpp
   src/cleria/settings.cpp
   src/cleria/access.cpp
   src/cleria/pad.cpp
@@ -100,15 +97,10 @@ add_library(cleria STATIC ${CLERIA_BRAINS}
   src/cleria/gamedata.cpp)
 target_include_directories(cleria PUBLIC src)
 
-# miniz 3.0.2 (richgel999/miniz, MIT), vendored verbatim in third_party/miniz: inflate + crc32
-# for the game's NI/NA archives (src/cleria/ni_archive). Own target so its warnings stay out of /W4.
-add_library(miniz STATIC "${TP}/miniz/miniz.c")
-target_include_directories(miniz PUBLIC "${TP}/miniz")
-if(MSVC)
-  target_compile_options(miniz PRIVATE /W0)
-else()
-  target_compile_options(miniz PRIVATE -w)
-endif()
+# The mod layer (cleria-modkit) and the two vendored libraries it needs, miniz and lua54: their own file,
+# so that another host of the same mods can build them without the engine (cmake/modkit.cmake).
+include(cmake/modkit.cmake)
+target_link_libraries(cleria PUBLIC cleria-modkit)
 target_link_libraries(cleria PRIVATE miniz)
 
 # cleria-gamedata — find / validate a Ys Origin install and unpack it (src/cleria/gamedata).
@@ -227,9 +219,7 @@ target_link_libraries(cleria-wndtest PRIVATE cleria)
 add_executable(cleria-modstest apps/cleria-modstest/main.cpp)
 target_link_libraries(cleria-modstest PRIVATE cleria miniz)
 
-# Mod content (phase 2a, build/shell_re/CONTENT.md): the save sidecar, the event bus, content/*.ini.
-target_sources(cleria PRIVATE src/cleria/inidoc.cpp src/cleria/sidecar.cpp src/cleria/mod_events.cpp
-                              src/cleria/content.cpp)
+# Mod content (phase 2a, build/shell_re/CONTENT.md): the save sidecar, the event bus, content/*.ini. (In cleria-modkit.)
 # cleria-contenttest — content/*.ini parsing + merging, the grant filter on real chest scripts, the
 # rules, text patches, the event bus and the sidecar (src/cleria/content, mod_events, sidecar).
 add_executable(cleria-contenttest apps/cleria-contenttest/main.cpp)
@@ -531,40 +521,19 @@ endif()
 add_test(NAME speedruntest COMMAND cleria-speedruntest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # ---- JSON and the WebSocket (the Lua mods' cleria.json / cleria.net, build/shell_re/LUA_API.md §8) ------
-# json is generic (src/cleria/json); the WinHTTP WebSocket is cleria-net. Both were written for the
+# json is generic (src/cleria/json); the WinHTTP WebSocket is src/cleria/net (both in cleria-modkit). Both were written for the
 # built-in Archipelago client (ARCHIPELAGO.md), removed in favour of the Lua mod samples/mods/archipelago_lua.
-target_sources(cleria PRIVATE src/cleria/json.cpp)
 # The C library functions as the x64 MSVC C library computes them (FMA3 CPUs), and off Windows the ones every
 # program links (platform_math.cpp, msvc_*.cpp).
 target_sources(cleria PRIVATE src/cleria/platform_math.cpp src/cleria/msvc_trigf.cpp src/cleria/msvc_trigd.cpp src/cleria/msvc_inv.cpp
                src/cleria/msvc_atan2.cpp src/cleria/msvc_pow.cpp src/cleria/msvc_powf.cpp src/cleria/msvc_hypotf.cpp
                src/cleria/msvc_exp_log.cpp)
-add_library(cleria-net STATIC src/cleria/net/websocket.cpp src/cleria/net/socket.cpp)
-if(WIN32)
-target_link_libraries(cleria-net PUBLIC cleria winhttp ws2_32)
-else()
-  # Off Windows the WebSocket is libcurl's (7.86+, built with WebSockets) when this is on; off, opening
-  # one reports "unsupported on this platform" through the Closed event.
-  option(CLERIA_CURL "WebSocket transport (cleria.net) over libcurl (Linux / macOS)" OFF)
-  target_link_libraries(cleria-net PUBLIC cleria)
-  if(CLERIA_CURL)
-    # third_party/curl when tools/fetch_deps.py built it (Linux: a static 8.11.1 with WebSockets), else the
-    # system's libcurl.
-    if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/curl/lib/cmake/CURL/CURLConfig.cmake")
-      find_package(CURL CONFIG REQUIRED PATHS "${CMAKE_SOURCE_DIR}/third_party/curl" NO_DEFAULT_PATH)
-    else()
-      find_package(CURL REQUIRED)
-    endif()
-    target_compile_definitions(cleria-net PUBLIC CLERIA_CURL)
-    target_link_libraries(cleria-net PRIVATE CURL::libcurl)
-  endif()
-endif()
 # cleria-jsontest — the JSON parser / writer (src/cleria/json.hpp).
 add_executable(cleria-jsontest apps/cleria-jsontest/main.cpp)
 target_link_libraries(cleria-jsontest PRIVATE cleria)
 # cleria-nettest — address parsing and a loopback WebSocket echo server (127.0.0.1 only; no internet).
 add_executable(cleria-nettest apps/cleria-nettest/main.cpp)
-target_link_libraries(cleria-nettest PRIVATE cleria-net)
+target_link_libraries(cleria-nettest PRIVATE cleria miniz)
 if(WIN32)
   target_link_libraries(cleria-nettest PRIVATE ws2_32)
 endif()
@@ -572,32 +541,17 @@ add_test(NAME jsontest COMMAND cleria-jsontest WORKING_DIRECTORY "${CMAKE_SOURCE
 add_test(NAME nettest COMMAND cleria-nettest WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # ---- Lua scripting for mods (build/shell_re/LUA_API.md) ----------------------------------------------
-# Lua 5.4.9 (lua.org, MIT), vendored verbatim in third_party/lua (minus the lua / luac programs). Built AS C++,
-# so a Lua error is a C++ throw (ldo.c LUAI_THROW) that unwinds the C++ frames of the cleria.* API functions.
-file(GLOB LUA_SRC CONFIGURE_DEPENDS "${TP}/lua/src/*.c")
-list(FILTER LUA_SRC EXCLUDE REGEX "/(lua|luac)\.c$")
-set_source_files_properties(${LUA_SRC} PROPERTIES LANGUAGE CXX)
-add_library(lua54 STATIC ${LUA_SRC})
-target_include_directories(lua54 PUBLIC "${TP}/lua/src")
-if(MSVC)
-  target_compile_options(lua54 PRIVATE /W0 /TP)
-else()
-  target_compile_options(lua54 PRIVATE -w -x c++)
-endif()
-# cleria-script: one sandboxed lua_State per mod with Script=, and the cleria.* API over the C++ layers.
-add_library(cleria-script STATIC src/cleria/modscript.cpp src/cleria/modscript_api.cpp)
-target_link_libraries(cleria-script PUBLIC cleria cleria-net lua54)
-target_link_libraries(cleria-view PRIVATE cleria-script)
+# One sandboxed lua_State per mod with Script=, and the cleria.* API over the C++ layers (in cleria-modkit).
 # cleria-luatest: sandbox escapes refused, runaway loops stopped, errors disable the mod, API round trips.
 add_executable(cleria-luatest apps/cleria-luatest/main.cpp)
-target_link_libraries(cleria-luatest PRIVATE cleria-script)
+target_link_libraries(cleria-luatest PRIVATE cleria)
 if(WIN32)
   target_link_libraries(cleria-luatest PRIVATE ws2_32)
 endif()
 add_test(NAME luatest COMMAND cleria-luatest "${CLERIA_TEST_ASSETS}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # ---- Mod files (build/shell_re/MODFILE.md): .cleriamod install + the per-user file association ----------
-target_sources(cleria PRIVATE src/cleria/modinstall.cpp src/cleria/fileassoc.cpp)
+# (src/cleria/modinstall and fileassoc are in cleria-modkit.)
 # cleria-modfiletest: package checks, installs into a scratch mods folder, the loader on .cleriamod, the
 # association on a FAKE registry (the real HKCU is never opened by a test).
 add_executable(cleria-modfiletest apps/cleria-modfiletest/main.cpp)

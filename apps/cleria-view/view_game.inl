@@ -3558,8 +3558,12 @@ title_again:
         content_emit(events::Event::named("script_started").with("name", nm).with("owner", owner));
         return true;
     };
+    csMgr.vm.on_moving_timeout = [&](int id) {
+        std::printf("  [events] watchdog: %s waited %d s on Wait_ChrMoving(%d) - let through\n", room.name.c_str(),
+                    XsoVm::kChrMovingLimit / 60, id);
+    };
     csHost.mgr = &csMgr;
-    scene_entry_fader = [&] {   // FUN_00439170 + 0x431881..0x4318a7 (transition() calls it on every entry)
+    scene_entry_fader =[&] {   // FUN_00439170 + 0x431881..0x4318a7 (transition() calls it on every entry)
         csHost.fade_rgb = 0; csHost.fade_cur = 1.0f; csHost.fade_tgt = 0.0f; csHost.fade_rate = 0.05f;
     };
     {   // mods (view_content.inl): the grant filter on the live VM and the game callbacks it needs
@@ -6570,6 +6574,7 @@ title_again:
     g_lua.b.state = [&]() -> const char* {              // cleria.game.state (API 7), most covering first
         if (shell.open) return "panel";
         if (death_t > 0 || player.hp < 1) return "gameover";
+        if (book.map_open()) return "map";
         if (book.is_open()) return "book";
         if (csHost.wdlg.alive()) return csHost.wdlg.is_menu() ? "menu" : "dialog";
         if (csMgr.world_frozen()) return "cutscene";
