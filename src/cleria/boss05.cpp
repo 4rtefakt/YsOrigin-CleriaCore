@@ -64,6 +64,7 @@ Boss05::Boss05(const Boss05Setup& s) {
     char_ = s.character; bb5c_ = s.diff_index; easy_ = s.diff_easy; very_easy_ = s.diff_very_easy; rush_ = s.boss_rush;
     pos_ = s.pos; pos_.z = 17.0f;                                  // obj+0x58 = 17 [BYTES 0x52da48]
     level_ = s.level; exp_b0_ = s.exp_b0; retries_ = s.retries;
+    light_dir0_ = s.light_dir; light_col0_ = s.light_col;          // blk+0x188.. / 0x1a0.. [0x52de80..0x52ded8]
     static const float kHpMul[3] = {1.0f, 1.25f, 1.5f};           // FUN_00443b80
     max_hp_ = s.eex_hp * kHpMul[std::clamp(bb5c_, 0, 2)];
     str_ = s.eex_str; def_ = s.eex_def;
@@ -154,7 +155,20 @@ Boss05Output Boss05::tick(const Boss05Input& in, std::vector<Boss05Minion>& mini
         in_ = nullptr; out_ = nullptr; mins_ = nullptr;
         return out;
     }
-    // §A.2 the prologue
+    // §A.2 the prologue. The scene light eases each frame: the direction toward the fight's (0.2, -0.8, 0) by 2 %
+    // (toward (0, 1, 0) by 1 % in the booster), the colour toward the room's by 3 % [EXPORT 0052e2c0.c:185-208].
+    {
+        const Vec3 d = in.light_dir, c = in.light_col;
+        if (d8_ == 0) {
+            const Vec3 f{0.2f, -0.8f, 0.0f};                       // blk+0x194..
+            out.light_dir = Vec3{(f.x + f.x + d.x * 98.0f) * 0.01f, (f.y + f.y + d.y * 98.0f) * 0.01f,
+                                 (f.z + f.z + d.z * 98.0f) * 0.01f};
+        } else {
+            out.light_dir = Vec3{(d.x * 99.0f + 0.0f) * 0.01f, (d.y * 99.0f + 1.0f) * 0.01f, (d.z * 99.0f + 0.0f) * 0.01f};
+        }
+        out.light_col = Vec3{(c.x * 97.0f + light_col0_.x * 3.0f) * 0.01f, (light_col0_.y * 3.0f + c.y * 97.0f) * 0.01f,
+                             (light_col0_.z * 3.0f + c.z * 97.0f) * 0.01f};
+    }
     const int clip0 = sec_;
     const float dz = P_.z - pos_.z, dx = P_.x - pos_.x;
     dx2_ = dx * dx; dz2_ = dz * dz;
@@ -178,7 +192,19 @@ Boss05Output Boss05::tick(const Boss05Input& in, std::vector<Boss05Minion>& mini
     if (hp_ < 1.0f || in.flag224) { death(); in_ = nullptr; out_ = nullptr; mins_ = nullptr; return out; }
     if (bc_ < 700) { intro_hold(); in_ = nullptr; out_ = nullptr; mins_ = nullptr; return out; }
     feet();
-    if (dc_ != 0) { ++dc_; if (dc_ > 1200) dc_ = 0; }             // §A.5 (the colour: [not modelled])
+    if (dc_ != 0) {                                                // §A.5 the light cycle [0052e2c0.c:876-902]
+        ++dc_;
+        if (d8_ == 0 && dc_ < 650) {                               // toward (1.0, 0.8, 0.8) over 60 frames, then held
+            if (dc_ < 60) {
+                const float a = float(60 - dc_), b = float(dc_);
+                light_col({(light_col0_.x * a + b) * (1.0f / 60.0f), (light_col0_.y * a + b * 0.8f) * (1.0f / 60.0f),
+                           (light_col0_.z * a + b * 0.8f) * (1.0f / 60.0f)});
+            } else {
+                light_col({1.0f, 0.8f, 0.8f});
+            }
+        }
+        if (dc_ > 1200) dc_ = 0;
+    }
     // §A.6 the summon gate
     if (hp_ <= 0.5f * max_hp_ && count_ == 1u) {
         const int n = int(minions.size());
@@ -256,6 +282,18 @@ void Boss05::intro_hold() {
     ++bc_;
     if ((!in_->fix_held || retries_ != 0) && bc_ < 600) bc_ = 600;   // no Fix, or a retry: a 101-frame hold
     const int bc = bc_;
+    // The intro's light [0052e2c0.c:527-559]: from frame 130 toward (0.9, 0.7, 0.7) over 50 frames, held to 434,
+    // (0.9, 0.1, 0.1) from 435 to 529 (a Retry's 600 skips it).
+    if (bc >= 0x83 && bc < 0x212) {
+        const int t = bc - 0x82;
+        if (t < 50) {
+            const float a = float(50 - t), b = float(t);
+            light_col({(a * light_col0_.x + b * 0.9f) * 0.02f, (light_col0_.y * a + b * 0.7f) * 0.02f,
+                       (light_col0_.z * a + b * 0.7f) * 0.02f});
+        } else {
+            light_col(bc < 0x1b3 ? Vec3{0.9f, 0.7f, 0.7f} : Vec3{0.9f, 0.1f, 0.1f});
+        }
+    }
     if (bc == 1) out_->sounds.push_back(285);
     if (bc > 100 && bc < 330 && bc % 20 == 0) shake(5, {0.2f, 0.2f, 0});
     if (bc == 100 || bc == 130 || bc == 160 || bc == 200 || bc == 220 || bc == 230) {
@@ -304,6 +342,17 @@ void Boss05::feet() {
 void Boss05::selection() {
     const int clip0 = selection_clip0_;
     if (d8_ != 0) {
+        // The booster's light [0052e2c0.c:993-1021]: toward (0.75, 0.7, 0.9) over 60 frames, then a pulse of y and z
+        // (0.003 a step over a 120-frame period).
+        if (d8_ < 60) {
+            const float a = float(60 - d8_), b = float(d8_);
+            light_col({(b * 0.75f + a * light_col0_.x) * (1.0f / 60.0f), (light_col0_.y * a + b * 0.7f) * (1.0f / 60.0f),
+                       (light_col0_.z * a + b * 0.9f) * (1.0f / 60.0f)});
+        } else {
+            const int u = d8_ % 120 < 60 ? 60 - d8_ % 60 : d8_ % 60;
+            const float f = float(u) * 0.003f;
+            light_col({0.75f, 0.7f - f, 0.9f - f});
+        }
         ++d8_;
         if ((d8_ & 7) == 0)
             for (int slot = 9; slot <= 12; ++slot) {
@@ -727,6 +776,8 @@ void Boss05::death() {
         for (int f = 544; f <= 546; ++f) out_->flags.push_back({f, 0});   // the drop-buff timers (PICTIMOS.md row 0x534b69)
     if (b4_ == 500) {
         out_->flags.push_back({224, 1});
+        out_->light_dir = Vec3{0.2f, -0.8f, 0.0f};                 // LightDir = blk+0x194, LightCol = blk+0x1a0 [0x534c42]
+        light_col(light_col0_);
         fwd_ = {}; yaw_ = 0;
         if (r291) { hp_ = max_hp_; ac_ = 1; }
         else { out_->destroy = true; destroyed_ = true; }
