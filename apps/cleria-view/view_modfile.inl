@@ -14,6 +14,7 @@
 #include "cleria/modinstall.hpp"
 #ifdef _WIN32
 #include <commdlg.h>   // GetOpenFileNameW: "Install a mod file..."
+#include <io.h>        // _get_osfhandle: Restart now hands the logs on
 #else
 #include <cerrno>       // Restart now's execv
 #include <fcntl.h>      // the single-instance lock file
@@ -364,10 +365,41 @@ static void modfile_relaunch() {
         const std::u8string u(a.begin(), a.end());
         cmd += L" " + quote(fs::path(u).wstring());
     }
-    STARTUPINFOW si{};
-    si.cb = sizeof si;
+    // The new process writes its logs where this one did (a terminal, a pipe, a file): only stdout and stderr
+    // are inherited (PROC_THREAD_ATTRIBUTE_HANDLE_LIST), and only when there are any (a start from Explorer has none).
+    STARTUPINFOEXW si{};
+    si.StartupInfo.cb = sizeof si;
+    HANDLE std2[2] = {HANDLE(_get_osfhandle(_fileno(stdout))), HANDLE(_get_osfhandle(_fileno(stderr)))};
+    HANDLE pass[2];
+    DWORD n = 0;
+    for (HANDLE h : std2)
+        if (h && h != INVALID_HANDLE_VALUE && (n == 0 || pass[0] != h) &&
+            SetHandleInformation(h, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT))
+            pass[n++] = h;
+    std::vector<char> attrs;
+    if (n) {
+        SIZE_T sz = 0;
+        InitializeProcThreadAttributeList(nullptr, 1, 0, &sz);
+        attrs.resize(sz);
+        si.lpAttributeList = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attrs.data());
+        if (!InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, &sz) ||
+            !UpdateProcThreadAttribute(si.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, pass, n * sizeof(HANDLE),
+                                       nullptr, nullptr)) {
+            si.lpAttributeList = nullptr;
+            n = 0;
+        } else {
+            si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+            si.StartupInfo.hStdInput = nullptr;
+            si.StartupInfo.hStdOutput = std2[0];
+            si.StartupInfo.hStdError = std2[1];
+        }
+    }
     PROCESS_INFORMATION pi{};
-    if (CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+    std::fflush(nullptr);
+    const BOOL started = CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, n ? TRUE : FALSE,
+                                        n ? EXTENDED_STARTUPINFO_PRESENT : 0, nullptr, nullptr, &si.StartupInfo, &pi);
+    if (si.lpAttributeList) DeleteProcThreadAttributeList(si.lpAttributeList);
+    if (started) {
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
     } else {
