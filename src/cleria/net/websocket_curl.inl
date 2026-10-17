@@ -4,7 +4,7 @@
 // libcurl only connects (CURLOPT_CONNECT_ONLY = 1: TCP, TLS for wss://, a proxy tunnel when one is set);
 // the HTTP upgrade and the frames are ours (websocket_frames.inl), as curl's own WebSocket API cannot take
 // permessage-deflate. A curl handle is not thread-safe, so ONE worker thread does everything: the handshake,
-// the queued sends, and the receives, waiting on the socket in short slices. The messages and the events
+// the queued sends, and the receives, waiting on the socket and on a wake-up pipe. The messages and the events
 // match the Windows transport (apps/cleria-nettest runs the same loopback checks on both).
 // (its system headers, <curl/curl.h> and <poll.h>, are included at the top of websocket.cpp)
 
@@ -22,7 +22,8 @@ struct WebSocket::Conn {
     WsOptions opt;
     std::atomic<bool> stop{false};        // close() asked
     std::atomic<bool> by_user{false};
-    std::atomic<bool> aborted{false};     // abort(): the worker drops the connection at its next slice
+    std::atomic<bool> aborted{false};     // abort(): the worker drops the connection
+    int wake_rd = -1, wake_wr = -1;       // a pipe: a byte written wakes the worker's wait on the socket
     std::mutex qmu;
     std::condition_variable qcv;
     std::deque<std::string> outq;
@@ -34,7 +35,24 @@ struct WebSocket::Conn {
     std::chrono::steady_clock::time_point close_deadline{};
     std::string send_error;
 
-    void abort() { aborted = true; }
+    Conn() {
+        int fd[2];
+        if (::pipe(fd) == 0) {
+            wake_rd = fd[0];
+            wake_wr = fd[1];
+            fcntl(wake_rd, F_SETFL, O_NONBLOCK);
+            fcntl(wake_wr, F_SETFL, O_NONBLOCK);
+        }
+    }
+    ~Conn() {
+        if (wake_rd >= 0) ::close(wake_rd);
+        if (wake_wr >= 0) ::close(wake_wr);
+    }
+    void wake_up() {
+        const char b = 1;
+        if (wake_wr >= 0 && ::write(wake_wr, &b, 1) < 0) {}   // full: a wake-up is pending anyway
+    }
+    void abort() { aborted = true; wake_up(); }
 };
 
 namespace {
@@ -54,7 +72,8 @@ int curl_progress(void* p, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
 // libcurl's connection as a byte stream (curl_easy_send / curl_easy_recv).
 class CurlStream final : public Stream {
 public:
-    CurlStream(CURL* h, curl_socket_t sock, int send_timeout_ms) : h_(h), sock_(sock), send_timeout_ms_(send_timeout_ms) {}
+    CurlStream(CURL* h, curl_socket_t sock, int send_timeout_ms, int wake_rd)
+        : h_(h), sock_(sock), send_timeout_ms_(send_timeout_ms), wake_rd_(wake_rd) {}
     bool write(const char* p, std::size_t n) override {
         auto last = std::chrono::steady_clock::now();
         while (n) {
@@ -84,8 +103,12 @@ public:
             if (rc == CURLE_OK) { err = "the server dropped the connection"; return -1; }
             if (rc != CURLE_AGAIN) { err = curl_easy_strerror(rc); return -1; }
             if (pass == 0) {
-                pollfd pf{sock_, POLLIN, 0};
-                if (::poll(&pf, 1, wait_ms) <= 0) return 0;
+                pollfd pf[2] = {{sock_, POLLIN, 0}, {wake_rd_, POLLIN, 0}};
+                if (::poll(pf, wake_rd_ >= 0 ? 2 : 1, wait_ms) <= 0) return 0;
+                char drain[64];
+                if (pf[1].revents & POLLIN)
+                    while (::read(wake_rd_, drain, sizeof drain) > 0) {}
+                if (!(pf[0].revents & (POLLIN | POLLHUP | POLLERR))) return 0;
             }
         }
         return 0;
@@ -95,6 +118,7 @@ private:
     CURL* h_;
     curl_socket_t sock_;
     int send_timeout_ms_;
+    int wake_rd_;
 };
 }  // namespace
 
@@ -131,7 +155,7 @@ void WebSocket::worker(std::shared_ptr<Conn> cp, std::vector<WsUrl> urls) {
         if (rc != CURLE_OK) why = prog.timed_out ? "timed out" : err[0] ? std::string(err) : std::string(curl_easy_strerror(rc));
         else if (curl_easy_getinfo(h, CURLINFO_ACTIVESOCKET, &sock) != CURLE_OK || sock == CURL_SOCKET_BAD) why = "no socket";
         if (why.empty() && !c.stop) {
-            CurlStream st(h, sock, o.send_timeout_ms);
+            CurlStream st(h, sock, o.send_timeout_ms, c.wake_rd);
             bool deflate = false;
             std::string rest;
             why = ws_upgrade(c, st, u, o, deflate, rest);

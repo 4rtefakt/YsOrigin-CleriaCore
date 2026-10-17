@@ -26,7 +26,9 @@
 #include <security.h>
 #elif defined(CLERIA_CURL)
 #include <curl/curl.h>
+#include <fcntl.h>
 #include <poll.h>
+#include <unistd.h>
 #endif
 #if defined(_WIN32) || defined(CLERIA_CURL)
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES   // keeps deflate / inflate free as plain names
@@ -139,7 +141,8 @@ struct WebSocket::Conn {
     SOCKET sock = INVALID_SOCKET;         // our own transport's socket
     std::atomic<bool> stop{false};        // close() asked
     std::atomic<bool> by_user{false};
-    std::atomic<bool> aborted{false};     // abort(): our own transport drops the connection at its next slice
+    std::atomic<bool> aborted{false};     // abort(): our own transport drops the connection
+    HANDLE wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);   // wakes our own transport's wait on the socket
     std::mutex qmu;
     std::condition_variable qcv;
     std::deque<std::string> outq;
@@ -150,6 +153,9 @@ struct WebSocket::Conn {
     bool done = false;
     std::chrono::steady_clock::time_point close_deadline{};
     std::string send_error;
+
+    ~Conn() { if (wake) CloseHandle(wake); }
+    void wake_up() { if (wake) SetEvent(wake); }
 
     void set(HINTERNET& slot, HINTERNET h) {
         std::lock_guard<std::mutex> l(hmu);
@@ -171,6 +177,7 @@ struct WebSocket::Conn {
     // Closing the handles makes any blocked WinHTTP call on them return; shutting the socket down, a blocked send.
     void abort() {
         aborted = true;
+        wake_up();
         std::lock_guard<std::mutex> l(hmu);
         for (HINTERNET* h : {&ws, &request, &connect, &session})
             if (*h) { WinHttpCloseHandle(*h); *h = nullptr; }
@@ -221,6 +228,7 @@ bool WebSocket::send(std::string text) {
         conn_->outq.push_back(std::move(text));
     }
     conn_->qcv.notify_one();
+    conn_->wake_up();
     return true;
 }
 
@@ -237,6 +245,7 @@ void WebSocket::close() {
             c.want_close = true;                // the writer sends the close frame after the queue
         }
         c.qcv.notify_one();
+        c.wake_up();
     } else {
         state_ = State::Closing;
         c.abort();                              // still connecting: cancel the handshake
@@ -286,7 +295,7 @@ void WebSocket::worker(std::shared_ptr<Conn> cp, std::vector<WsUrl> urls) {
     // our own transport first: it negotiates permessage-deflate, which WinHTTP refuses
     for (std::size_t ui = 0; wsa_ok && ui < urls.size() && !c.stop && !opened; ++ui) {
         const WsUrl& u = urls[ui];
-        WinStream st;
+        WinStream st(c.wake);
         bool deflate = false;
         std::string rest;
         std::string why = st.open(c, u, o);

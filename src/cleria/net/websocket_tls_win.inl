@@ -4,12 +4,16 @@
 
 namespace {
 
+// The socket stays non-blocking: a read waits on its event and on `wake` (set when a frame is queued), so a send
+// never waits for a time slice.
 class WinStream final : public Stream {
 public:
+    explicit WinStream(HANDLE wake) : wake_(wake) {}
     ~WinStream() override {
         if (have_ctx_) DeleteSecurityContext(&ctx_);
         if (have_cred_) FreeCredentialsHandle(&cred_);
         if (sock_ != INVALID_SOCKET) closesocket(sock_);
+        if (event_ != WSA_INVALID_EVENT) WSACloseEvent(event_);
     }
 
     // TCP connect (and the TLS handshake for wss). "" when connected, else why not.
@@ -47,17 +51,16 @@ public:
                 }
             }
             if (!ok) { closesocket(s); continue; }
-            nb = 0;
-            ioctlsocket(s, FIONBIO, &nb);
             BOOL nodelay = TRUE;
             setsockopt(s, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&nodelay), sizeof nodelay);
-            const DWORD st = static_cast<DWORD>(o.send_timeout_ms);
-            setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&st), sizeof st);
             sock_ = s;
         }
         freeaddrinfo(res);
         if (c.stop) return "cancelled";
         if (sock_ == INVALID_SOCKET) return why;
+        send_timeout_ms_ = o.send_timeout_ms;
+        event_ = WSACreateEvent();
+        if (event_ == WSA_INVALID_EVENT || WSAEventSelect(sock_, event_, FD_READ | FD_CLOSE) != 0) return "socket event failed";
         if (!u.secure) return {};
         return tls_handshake(c, widen(u.host), o.handshake_timeout_ms);
     }
@@ -125,28 +128,40 @@ private:
     }
 
     bool raw_write(const char* p, std::size_t n) {
+        auto last = std::chrono::steady_clock::now();
         while (n) {
             const int k = ::send(sock_, p, static_cast<int>(std::min<std::size_t>(n, 1 << 20)), 0);
-            if (k <= 0) {
-                err = WSAGetLastError() == WSAETIMEDOUT ? "timed out" : "connection reset";
+            if (k > 0) {
+                p += k;
+                n -= static_cast<std::size_t>(k);
+                last = std::chrono::steady_clock::now();
+                continue;
+            }
+            if (WSAGetLastError() != WSAEWOULDBLOCK) { err = "connection reset"; return false; }
+            if (std::chrono::steady_clock::now() - last > std::chrono::milliseconds(send_timeout_ms_)) {
+                err = "timed out";
                 return false;
             }
-            p += k;
-            n -= static_cast<std::size_t>(k);
+            fd_set ws;
+            FD_ZERO(&ws);
+            FD_SET(sock_, &ws);
+            timeval tv{0, 50000};
+            select(0, nullptr, &ws, nullptr, &tv);
         }
         return true;
     }
     long raw_read(char* p, std::size_t n, int wait_ms) {
-        fd_set rs;
-        FD_ZERO(&rs);
-        FD_SET(sock_, &rs);
-        timeval tv{wait_ms / 1000, (wait_ms % 1000) * 1000};
-        const int r = select(0, &rs, nullptr, nullptr, &tv);
-        if (r == 0) return 0;
-        const int k = r > 0 ? ::recv(sock_, p, static_cast<int>(n), 0) : -1;
-        if (k > 0) return k;
-        err = k == 0 ? "the server dropped the connection" : "connection reset";
-        return -1;
+        for (int pass = 0; pass < 2; ++pass) {
+            const int k = ::recv(sock_, p, static_cast<int>(n), 0);
+            if (k > 0) return k;
+            if (k == 0) { err = "the server dropped the connection"; return -1; }
+            if (WSAGetLastError() != WSAEWOULDBLOCK) { err = "connection reset"; return -1; }
+            if (pass == 1 || wait_ms <= 0) break;
+            HANDLE hs[2] = {event_, wake_};
+            WSAWaitForMultipleEvents(wake_ ? 2 : 1, hs, FALSE, static_cast<DWORD>(wait_ms), FALSE);
+            WSAResetEvent(event_);   // the recv below re-arms FD_READ when nothing is there yet
+        }
+        return 0;
     }
 
     template <class ConnT>
@@ -202,6 +217,9 @@ private:
     }
 
     SOCKET sock_ = INVALID_SOCKET;
+    HANDLE wake_ = nullptr;
+    WSAEVENT event_ = WSA_INVALID_EVENT;
+    int send_timeout_ms_ = 15000;
     bool tls_ = false, have_cred_ = false, have_ctx_ = false;
     CredHandle cred_{};
     CtxtHandle ctx_{};

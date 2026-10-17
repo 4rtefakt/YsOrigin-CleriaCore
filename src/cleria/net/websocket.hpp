@@ -9,8 +9,8 @@
 // opens directly: WinHTTP fails the upgrade when the server accepts any extension, so it cannot be the main path.
 //
 // One worker thread per connection does the handshake, the queued sends and the receives, waiting on
-// the socket in 10 ms slices (WinHTTP fallback: it blocks in WinHttpWebSocketReceive, and a second
-// thread drains the send queue). The game thread only calls open / send / close / poll, which never
+// the socket and on a wake-up that send() and close() signal (WinHTTP fallback: it blocks in
+// WinHttpWebSocketReceive, and a second thread drains the send queue). The game thread only calls open / send / close / poll, which never
 // block on the network (close() waits at most ~2 s for a polite close handshake, then aborts).
 //
 // Addresses: "ws://host:port/path", "wss://...", "archipelago://host:port" (= ws://, as the

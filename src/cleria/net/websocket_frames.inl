@@ -209,7 +209,7 @@ std::string ws_session(ConnT& c, Stream& s, bool deflate, std::string in, std::s
             send_frame(8, st, 2);
             close_sent = true;
         }
-        const long n = s.read(buf.data(), buf.size(), 10);   // [H] 10 ms slices: a send waits at most this long
+        const long n = s.read(buf.data(), buf.size(), 250);   // a queued send or close() wakes it at once
         if (n < 0) return c.stop ? "closed" : "connection lost: " + s.err;
         in.append(buf.data(), static_cast<std::size_t>(n));
 
