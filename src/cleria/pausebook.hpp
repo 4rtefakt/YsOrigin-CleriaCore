@@ -107,6 +107,7 @@ struct BookModel {
     std::function<PlayerStats(int item)> preview;
     bool player_can_act = true;             // grounded and not hurt/dead (else "@UseItemBoo")
     bool underwater = false;                // the Harmonica's "@UseHarmonica2"
+    bool o2_gauge = false;                  // 0x76c1bc != 0: the oxygen bar is up (the Conch's flag 503)
     // The Load / Save list: the scanner for slot 0..63 (yso_NN.bin) and the last-used slot
     // DAT_0074ac3e (ini SaveFileNo).
     std::function<SlotCard(int slot)> scan;

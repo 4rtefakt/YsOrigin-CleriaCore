@@ -547,8 +547,8 @@ void PauseBook::update_popup(const BookInput& in, BookModel& m, BookEvents& ev) 
                         pstate_ = 3;
                         mtower_.fade_to(kWhite, 0, 24);        // the pillars follow the tower
                         return;
-                    case 0x55:                               // flag 503 = the O2 gauge is up ([not modelled]: 0)
-                        m.flags[503] = 0;
+                    case 0x55:                               // flag 503 = the O2 gauge is up (KEY_ITEMS.md §2: the
+                        m.flags[503] = m.o2_gauge ? 1 : 0;   // shell then says it can't be used here)
                         ev.script = can ? "@Riranokaigara" : "@UseItemBoo";
                         break;
                     case 0x70: ev.script = can ? "@DarkRiranokaigara" : "@UseItemBoo"; break;

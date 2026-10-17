@@ -5595,6 +5595,7 @@ title_again:
         };
         m.player_can_act = player.hp > 0 && pv.grounded;   // +0x388; [not modelled] motion states 4 / 5
         m.underwater = water_mode == 2;                    // [not modelled] submerged (+0x38a)
+        m.o2_gauge = oxy.alpha != 0;                       // 0x76c1bc
         m.scan = [&](int slot) { return scan_slot(slot_path(slot)); };
         m.save_file_no = &bookSaveNo;
         m.sliders = oslider;
