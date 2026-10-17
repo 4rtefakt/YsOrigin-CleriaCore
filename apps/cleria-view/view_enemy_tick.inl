@@ -438,7 +438,6 @@
                         if (ai_debug) std::printf("[hold] #%d holds the player at (%.2f, %.2f, %.2f)\n", en->instance_id,
                                                   o.hold_origin.x, o.hold_origin.y, o.hold_origin.z);
                     }
-                    // [not modelled] attachment to the actor (FUN_00451c20) and the scale.
                     // The brain's effects, through the particle simulation (their hit fields arm
                     // the EF2's hit emitters; EFFECTHIT.md). Owned ones are killed / re-placed by tag.
                     for (const AiEffect& fx : o.effects) {
@@ -460,6 +459,10 @@
                         // FUN_00451c20 mode 1 (M700's dash effect): fx = local x the actor's full matrix. [H] as
                         // spawn_generate_effect: actor_mats carry the translation only, so the yaw is baked here.
                         if (sfx && fx.attach && fx.attach_full) {
+                            if (fx.attach_local)                    // T(L) x R x S as spawn_generate_effect (M460's claws)
+                                sfx->local = ef2sim::mul(ef2sim::mul(ef2sim::translation(fx.local.x, fx.local.y, fx.local.z),
+                                                                     ef2sim::rot_ypr(fx.local_ypr.x, fx.local_ypr.y, fx.local_ypr.z)),
+                                                         ef2sim::scaling(fx.scale, fx.scale, fx.scale));
                             sfx->local = ef2sim::mul(sfx->local, ef2sim::rot_ypr(-(e.facing + 1.5707963f), 0.0f, 0.0f));
                             sfx->attach_mode = 1;
                         }
