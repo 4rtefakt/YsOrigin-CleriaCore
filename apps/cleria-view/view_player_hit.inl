@@ -44,7 +44,7 @@
                 broke += smash_breakables(vol, player_hit_serial, atk_hb.rehit, atk_hb.one_shot, atk_hb.power, atk_cls);
                 // FUN_004fed50's GoMesh pass (VELAGUNDER.md §3.3): each boss part's hurt sphere,
                 // its own re-hit bank, the damage with the part's DEF / resist into part +0x134.
-                // [not modelled] the armour's skipped elemental bonus, Toal's refused sections.
+                // The element bonus (skipped on armour) is part_element's. [not modelled] Toal's refused sections.
                 if (boss && !boss->destroyed())
                     for (int pi = 0; pi < boss01::kParts; ++pi) {
                         if (!boss->part_hittable(pi)) continue;
