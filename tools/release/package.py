@@ -59,6 +59,8 @@ def copy_licenses(dest, extra=()):
                "Lua is Copyright (C) 1994-2025 Lua.org, PUC-Rio, under the MIT license.\nhttps://www.lua.org/license.html\n")
     write_text(os.path.join(dest, "stb_vorbis.txt"),
                "stb_vorbis by Sean Barrett, public domain (or MIT).\nhttps://github.com/nothings/stb\n")
+    # The HUD's atlas (res/hud_font.bin) is baked from Fira Mono: tools/make_font.py.
+    shutil.copy2(os.path.join(ROOT, "res", "hud_font-OFL.txt"), os.path.join(dest, "Fira-Mono-OFL.txt"))
     for src, name in extra:
         shutil.copy2(src, os.path.join(dest, name))
 
