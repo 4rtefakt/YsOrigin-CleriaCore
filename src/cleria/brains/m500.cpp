@@ -10,7 +10,8 @@
 // effect 448 m_dokutama, speed 0.1, gravity 0.004, lobbed by distance), 1 or 2 volleys
 // (+1 when group-tagged), then a cooldown of (R%30 + 60) x 3 (x 2 above Normal).
 // [not modelled] +0x144 (CASTINFO
-// +0x3c) scaled by the fade; the bullet's damage (the GoXx path is untraced).
+// +0x3c) scaled by the fade. The poison balls are kind-0x29 GoXx bullets; they hit through their effect's particles
+// (bullet.hpp).
 #include <cmath>
 
 #include "cleria/actor.hpp"
