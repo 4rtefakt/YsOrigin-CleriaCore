@@ -6,8 +6,8 @@ still a stand-in. Players start at the [README](../README.md).
 
 The reverse-engineering behind the engine (the notes, the specifications, the decompilation and how much of
 the game is covered) lives in the private **[yso](https://github.com/4rtefakt/yso)** repository; its
-[PROGRESS.md](https://github.com/4rtefakt/yso/blob/main/PROGRESS.md) is the current measure. The notes under
-`build/*_re` here are the working copies it collects.
+[PROGRESS.md](https://github.com/4rtefakt/yso/blob/main/PROGRESS.md) is the current measure. The notes that used to
+live under `build/*_re` are there now; [build/README.md](../build/README.md) maps an old path to its new one.
 
 ## The rule
 
@@ -129,7 +129,7 @@ not copied: through the manifest, an unpacked data folder resolves them from
 `CLERIA_MOVIE_DIR`, `CLERIA_FONT_FILE`, or copies under `<asset_root>/music`,
 `<asset_root>/movie`. Movies decode through Windows Media Foundation; a missing file is
 skipped like the game's own open failure. `CLERIA_MOVIE=0` turns them off (see
-`build/event_re/MOVIES.md`).
+yso's `notes/event/MOVIES.md`).
 
 (The old route, `tools/extract_assets.py` into `assets/`, still produces an equivalent
 tree; see GAMEDATA.md for its one known defect.)
@@ -206,7 +206,7 @@ apps/cleria-dump/  load a room's SOB, export it to .obj
 apps/cleria-xso/   disassemble / run scripts; `--grants` scans the corpus
 docs/              this guide; the file-format specs moved to yso (formats/)
 tools/             Python validators, probes and Ghidra scripts
-build/*_re/        raw RE notes per subsystem (source_map, hud_re, attack_re, event_re, …)
+build/shell_re/    the shell, settings and mod API notes (the RE notes moved to yso: build/README.md)
 ```
 
 > **These three sections lag behind.** They were last revised in early October 2026, before floors 4 to 7,
@@ -238,7 +238,7 @@ build/*_re/        raw RE notes per subsystem (source_map, hud_re, attack_re, ev
 | Equipment → stats | ✅ INVINFO DEF column + GAMEINFO weapon-ATK table (there is no ATK column in INVINFO) |
 | Difficulty | ✅ five settings (a 3-valued index + two booleans), effects `[C-DIS]` |
 | **XSO event VM** | ✅ flags/tests/give-item/acquire-box/compare/show-hide, **spawn `0x12c`**, **alive `0x13f`**, **barrier `0x131`** |
-| **Combat: melee combos + projectiles + enemy attacks** | ✅ ASO-driven — see [build/attack_re](../build/attack_re) / [build/combat_re](../build/combat_re) |
+| **Combat: melee combos + projectiles + enemy attacks** | ✅ ASO-driven — see yso's `notes/attack/` and `notes/combat/` |
 | **The real HUD (STATUS_512)** | ✅ HP + damage-lag trail, segmented MP, EX/Boost arc, SP digits, portrait, slots |
 | **In-game pause book + menus** | ✅ Escape opens Equip/Item/Topic/Save-Load; assets pixel-matched |
 | **Per-room BGM (SCENELIST)** | ✅ each room picks its `.ogg`; loose files via `CLERIA_MUSIC_DIR` |
