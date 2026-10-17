@@ -1136,6 +1136,7 @@ XsoVm::Tick XsoVm::tick() {
     for (int guard = 0; guard < 2'000'000; ++guard) {              // bound a wait-less loop
         ++burst_ops;
         const Step s = step_one(*co_script, co_pc, /*coroutine*/true);
+        if (stop_req) { stop_req = false; co_script = nullptr; return Tick::Ended; }   // cleria.script.stop
         if (s == Step::Park) return Tick::Waiting;
         if (s == Step::End || s == Step::Unknown) { co_script = nullptr; return Tick::Ended; }
         // Step::Continue -> next op in this frame's burst
@@ -1161,7 +1162,13 @@ bool XsoVm::eval_wait(std::uint32_t sub, const Xso& script, std::uint32_t old,
         case 0xf6: return host ? host->wait_window(false) : true;        // msg window closed
         case 0xf7: return host ? host->wait_sound(nargs >= 1 ? op(0) : 0) : true;
         case 0xf8: return nargs >= 2 ? (flag(op(0)) == op(1)) : true;    // Wait_FlagEqualInt
-        case 0x100: return host ? !host->chr_moving(op(0)) : true;       // Wait_ChrMoving: proceed when STILL
+        case 0x100: {                                                     // Wait_ChrMoving: proceed when STILL
+            if (!host || !host->chr_moving(op(0))) { co_moving = 0; return true; }
+            if (++co_moving < kChrMovingLimit) return false;
+            co_moving = 0;                                                // the watchdog (co_moving above)
+            if (on_moving_timeout) on_moving_timeout(op(0));
+            return true;
+        }
         // WAITOPS.md §3.1-3.3. A missing object hangs 0x104/0x105 in the original (kept).
         case 0x104: {                                                     // Wait_MeshMoving
             if (!host) return true;
@@ -1247,16 +1254,19 @@ void ScriptManager::tick_inst(Inst& in) {
     vm.co_script = in.script.get();
     vm.co_pc = in.pc;
     vm.co_wait = in.wait;
+    vm.co_moving = in.moving;
     vm.acc = in.acc;
     vm.locals = std::move(in.locals);
     vm.vars = in.vars;
     vm.owner = in.owner;
     vm.script_name = in.name;          // the grant filter's context (CleriaCore mods)
     vm.burst_ops = 0;
+    vm.stop_req = false;
     const XsoVm::Tick t = vm.tick();
     vm.script_name.clear();
     in.pc = vm.co_pc;
     in.wait = vm.co_wait;
+    in.moving = vm.co_moving;
     in.acc = vm.acc;
     in.locals = std::move(vm.locals);
     vm.locals.clear();

@@ -23,6 +23,15 @@ CHEST = "10:kill1;420:obj=box_01;430:act"       # the S_1001 chest behind the ba
 # Each step that waits on the server holds the drive on the line the mod logs for it (waitlog=, view_lua.inl).
 L = "1:waitlog=hints:;"
 
+
+def _boss_on_flag():
+    """apworld 2.2: a boss check arrives as its fight's win flag (Velagunder: 220), not on the room's entry."""
+    with open(os.path.join(ROOT, "tests", "ap", "test_slot_data.json"), encoding="utf-8") as f:
+        det = dict(json.load(f)["location_detect"])
+    det["Boss: 5F Velagunder (S_1099)"] = {"method": "flag", "offset": "0x%X" % (0x36B91C + 4 * 220)}
+    return det
+
+
 CASES = {
     # A check: the S_1001 chest holds another world's item (ap_chest).
     "aplua_chest": dict(
@@ -168,6 +177,76 @@ CASES = {
         absent=["script stopped", "Mod stopped", "attempt to"],
         server_expect=['Get {"cmd":"Get","keys":["_read_hints_0_2"]}', 'SetNotify {"cmd":"SetNotify","keys":["_read_hints_0_2"]}',
                        'Say {"cmd":"Say","text":"!hint Wailing Blue: 2F Path 1"}']),
+    # The rest of the mod repository's .dev/port_cases.py (ys-origin-cleriacore-ap 0.2.0, apworld-2.0 branch).
+    # A 2.2 seed, "Boss checks on defeat" off: nothing at the door all the same, the check when 220 is set.
+    "aplua_boss_flag_seed": dict(
+        room="S_10/S_1099/S_1099", aplua=dict(slot_data=dict(location_detect=_boss_on_flag())),
+        drive="120:lua=apstate;130:flag=220,1;200:lua=apstate;220:quit",
+        expect=["goal 0 active 1", "Boss: 5F Velagunder (S_1099) (", "goal 0 active 1"],
+        absent=["Boss: 5F Velagunder (S_1099) (room)"]),
+    # A gem Roo (8F, S_2011): its two boxes (the Topaz, then "Lightning power increased!") come before its check, in
+    # AGERU itself, and both name the seed's item; the gem's level is withheld and the check follows.
+    "aplua_roo_box": dict(
+        room="S_20/S_2011/S_2011", aplua=dict(slot_data=dict(roo_flags=[312, 339, 362, 388, 414, 458])),
+        drive="60:lua=apsay !give Roda Fruit;150:run=AGERU;" + ";".join("%d:ok" % t for t in range(300, 1500, 100)) +
+              ";1500:lua=apflag 339;1510:quit",
+        expect=["Roda Fruit: Roda Fruit #1", P + "box S_2011/AGERU: Received\\nSP: 50.",
+                P + "box S_2011/AGERU: Received\\nSP: 50.", P + "check 5857533 Flooded Prison: 8F Path 2 ", "Roo Trade (store)",
+                P + "suppressed g_flags[0xB7] 0 -> 1 (S_2011/AGERU)", P + "flag 0x153 = 1"],
+        absent=["power increased"]),
+    # An elemental altar (S_2009) whose skill the seed moved: the skill withheld, the check sent, then the event
+    # ended there (mod API 7, cleria.script.stop) with the HUD it hid (flag 185) back and the world running.
+    "aplua_altar": dict(
+        room="S_20/S_2009/S_2009", aplua={},
+        drive="10:killall;150:run=TalkC940;300:scripts;310:lua=apflag 0x75;320:lua=apflag 185;330:quit",
+        expect=[P + "suppressed g_flags[0x75] -1 -> 1 (S_2009/TALKC940)",
+                P + "check 5857538 Flooded Prison: Skill Room ", "Levinstrike Warhammer (store)",
+                P + "altar: TalkC940 ended after its check (its skill is another world's)", "frozen 0",
+                P + "flag 0x75 = -1", P + "flag 0xB9 = 1"],
+        absent=["script TalkC940"]),
+    # The EXP base / catch-up sliders: the fixture's seed multiplies a kill's EXP by 20 (level_scaling 2); with both
+    # set to 2 the same five kills give 102, not 1029. The kills wait for the login (the factor is 1 before it).
+    "aplua_exp_override": dict(
+        room="S_10/S_1002/S_1002", aplua=dict(settings="ExpBase=2\nExpCatchup=2\n"),
+        drive="8:opt=DamageDealt=10;10:opt=DamageTaken=0;300:lua=apstate;314:stats;" +
+              ";".join("%d:near=17;%d:atk" % (t, t + 1) for t in range(340, 441, 25)) + ";450:stats;460:quit",
+        expect=["active 1", "stats exp 0 lv 1", "stats exp 102 lv 1"]),
+    # Toal and Rado's Annex: his story flags 269 / 289 start the stoppers of S_4014 and S_4104 (and keep the Shion
+    # chain from ending). They are held at 0 in those rooms, so S_4104 never starts Kadena_Stopper...
+    "aplua_toal_annex": dict(
+        room="S_40/S_4014/S_4014", char="3", aplua={},
+        drive="60:flag=289,1;61:flag=269,1;120:lua=apflag 289;150:exit=2;400:scripts;420:lua=apflag 269;440:quit",
+        expect=[P + "repair: Rado's Annex: Toal's story flag 289 held at 0", P + "flag 0x121 = 0", ">> entering S_4104",
+                P + "flag 0x10D = 0"],
+        absent=["script Kadena_Stopper"]),
+    # ...and put back on the way out (S_4019). (The Shion fight's chain: aplua_toal_shion_chain in drive_regress.py.)
+    "aplua_toal_annex_out": dict(
+        room="S_40/S_4014/S_4014", char="3", aplua={},
+        drive="60:flag=289,1;120:lua=apflag 289;150:exit=0;400:lua=apflag 289;420:quit",
+        expect=[P + "flag 0x121 = 0", ">> entering S_4019", P + "repair: Rado's Annex: Toal's story flag 289 put back",
+                P + "flag 0x121 = 1"]),
+    # Mod API 4. A level-up alone asks for the autosave.
+    "aplua_autosave_level": dict(
+        room="S_10/S_1001/S_1001", aplua={},
+        drive="300:level=5;700:lua=apstate;720:quit",
+        expect=[P + "autosave: wrote No.08"]),
+    # Mod API 6. A kill gives at least half the EXP multiplier: Hard, level 13 against a level-3 monster at x100
+    # is 14 by the game's own rule (lua_exp_floor), 50 here. The kills wait for the login, as in aplua_exp_override.
+    "aplua_exp_floor": dict(
+        room="S_10/S_1002/S_1002", aplua=dict(settings="ExpMultiplier=100\n"),
+        drive="5:diff=3;6:level=13;8:opt=DamageDealt=10;10:opt=DamageTaken=0;300:lua=apstate;314:stats;" +
+              ";".join("%d:near=17;%d:atk" % (t, t + 1) for t in range(340, 441, 25)) + ";450:stats;460:quit",
+        expect=["active 1", "stats exp 21936 lv 13", "stats exp 21986 lv 13"]),
+    # The "in logic" count from slot_data.logic: two checks made on entry (region 1), a blessing in region 1
+    # that needs an item those checks send (SP: 50), and the statue in a region behind an item never received.
+    "aplua_in_logic": dict(
+        room="S_10/S_1001/S_1001",
+        aplua=dict(slot_data=dict(logic=dict(regions=["Menu", "A", "B"],
+                                             entrances=[[0, 1, True], [1, 2, ["has", "Nope", 1]]],
+                                             locations={"5857429": [1, True], "5857558": [1, True], "5857587": [2, True],
+                                                        "5857332": [1, ["all", ["reach", 1], ["has", "SP: 50", 2]]]}))),
+        drive="300:lua=apstate;320:quit",
+        expect=["checks 2 goal 0 active 1 deathlink 0 in logic 3 left 3"]),
 }
 
 

@@ -160,6 +160,9 @@ public:
     int state() const { return d0_; }
     int frames() const { return b4_; }
     int booster() const { return d8_; }
+    // Byte obj+0x28f: while set the GoMesh update skips the clip advance (FUN_00562990 0x5629c6), read at the next
+    // step's advance. JUMP sets it for b4 56..105, the death from b4 200; SetState clears it.
+    bool clip_frozen() const { return freeze_clip_; }
     const Boss05Camera& camera() const { return cam_; }
     int meter() const { return c8_; }
     int intro() const { return bc_; }
@@ -203,6 +206,7 @@ private:
     // blk
     int ac_ = 0;                                  // 0xac round 2
     int b4_ = 0, b8_ = 0, bc_ = 0, c0_ = 0, c8_ = 0, cc_ = 0, d0_ = 0, d4_ = 0, d8_ = 0, dc_ = 650;
+    bool freeze_clip_ = false;                           // obj+0x28f
     Vec3 light_dir0_{0, -1, 0}, light_col0_{1, 1, 1};   // blk+0x188 / blk+0x1a0 (the room's light at the ctor)
     Boss05Camera cam_{};                                 // blk+0x1ac..0x1e4
     void light_col(const Vec3& c) { out_->light_col = c; }

@@ -10,7 +10,7 @@
 // The arrival's hit is FUN_004faf20(chain, part, 1, 0) [BYTES 0x592d00.. per §3.3; EXPORT 004faf20.c:86-112]: flag 1
 // = no overlap test; the gates are +0x60 & 0x80 and HP >= 1.0; the part's bank on the chain's token 0 / timer 0 never
 // blocks; the attacker is the player (the chain is neither an actor nor class 0x0b); power -15.0, class 2.
-// [H] the frustum planes are the view's last view-projection (the camera block's plane writer was not traced).
+// The frustum planes are the camera build's (FUN_005eca30 0x5ecc5a..0x5ece60), from the view's last view-projection.
 // [approx] a part is "there" by its boss's part_hittable (Dalles's and Darm's: while the fight flag 156 is up);
 // the chain drops a target whose +0x98 is under 1.0 — the parts' pools are not read for that.
 constexpr int kChainPart = 1 << 20;                       // a part's target id: kChainPart + 100 x boss + part
@@ -59,8 +59,12 @@ chain_parts = [&](const Vec3& ctr, std::vector<extra::Chain::Target>& found) {
             for (int j = 0; j < 4; ++j)
                 p[j] = k == 4 ? row[2][j] : k == 5 ? row[3][j] - row[2][j]
                      : row[3][j] + (k & 1 ? -1.0f : 1.0f) * row[k >> 1][j];
-            const float n = std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
-            if (n > 0.0f && (p[0] * q.x + p[1] * q.y + p[2] * q.z + p[3]) / n <= -r) return false;
+            // FUN_005eca30's loop 0x5ece00: each plane x 1 / (a^2 + b^2 + c^2), no square root, so the
+            // distance is the true one over the plane's length (GOXX_17_19.md U3).
+            const float n2 = p[0] * p[0] + p[1] * p[1] + p[2] * p[2];
+            if (n2 <= 0.0f) continue;
+            const float s = 1.0f / n2;
+            if ((p[0] * s) * q.x + (p[1] * s) * q.y + (p[2] * s) * q.z + p[3] * s <= -r) return false;
         }
         return true;
     };

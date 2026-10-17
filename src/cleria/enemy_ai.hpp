@@ -99,6 +99,7 @@ struct EnemyAi {
     // +0x320 as a brain reads it: the constructor's 0 until a probe has hit [EXPORT 004590b0.c:24].
     float w320() const { return water_y > -1.0e29f ? water_y : 0.0f; }
     bool in_water = false;
+    bool buried_deep = false;               // +0x38c: on sand2 with the feet more than 1.3 under its top (FUN_0045c490)
     bool wading = false, entered = false;   // +0x389, +0x38b (water.hpp; ENEMY_WATER.md §1.2)
     std::uint8_t splash_cd = 0, bubble_t = 0, breath_t = 0;   // +0x4c3, +0x4c5, +0x4c6: FUN_0045c490's splash / bubble pacing
     bool water_seen = false;                // the port's: the water test has run once (stands for the placement's probe)

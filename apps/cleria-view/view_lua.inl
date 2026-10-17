@@ -716,7 +716,7 @@ static bool lua_reload(const std::string& id) {
             for (int k = 0; k < 5; ++k) r.b.op(id, "tune", {double(k), 1.0}, "", nullptr);
             r.b.op(id, "tune", {5.0, 0.0}, "", nullptr);
         }
-        r.tune.erase(id); r.speed.erase(id); r.pause.erase(id); r.hud_hidden.erase(id);
+        r.tune.erase(id); r.speed.erase(id); r.pause.erase(id); r.hud_hidden.erase(id); g_skip_mods.erase(id);
         up.reset();
         up = std::make_unique<script::Mod>(def->m.id, def->label(), def->m.version, def->root, r.host);
         const bool ok = up->start(def->m.script);

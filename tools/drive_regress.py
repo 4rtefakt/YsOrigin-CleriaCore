@@ -303,6 +303,14 @@ CASES = {
                 # the module's ray alone, the line above: power 0, rtype 1.)
                 "eaten (2 so far)", "eaten (5 so far)",
                 "velagunder part 2 (STR 70 power 14.0 rtype 2"]),
+    # The RUN parts (3, 4, 15..20: +0x11c & 8) in the fight run FUN_004fe1a0, not FUN_004fd350 (VELAGUNDER.md U3):
+    # the knock-down (section 9, knock 0.1 + 1.2) and no HP. velagunder_attacks' course, to the first RUN contact.
+    "velagunder_run_no_hp": dict(
+        room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="15", CLERIA_BOSSLOG="1", CLERIA_DMG="1"),
+        drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
+              + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 2701, 12)) + "2710:quit",
+        expect=["clip RUN_", "[hurt] alt applier (no HP) section 256 -> 9 knock 1.30",
+                "velagunder part 18 (STR 70 power 0.0 rtype 3 r 1.25) player hp 139 -> 139"]),
     # The taunt (VELAGUNDER.md C10, §5.8: state 8, ACTION_01 — the player grounded on surface 5 (his wood body)
     # with the floor above 4.0, out of his reach). After the first stun is over (t2610: state 0, WAIT) Yunica is
     # put on the top of his right shoulder, on the hull as it is posed now (`at3`: the floor below (2.5, 14, 33),
@@ -793,6 +801,12 @@ CASES = {
         room="S_10/S_1002/S_1002",
         drive="20:drop=72;21:drop=74;22:drop=76;80:hudstate;90:evxx=5;91:hudstate;92:quit",
         expect=["str 0.5/1790 def 0.3/1791 mp 1.2/1792 full 1800", "EventXX(5)", "str 0.0/0 def 0.0/0 mp 0.0/0 full 1800"]),
+    # EventXX(8) (FUN_0058f210 case 8 [BYTES 0x58f7ce..0x58f843]) makes a GoXx heal object: +1 HP a sim tick from the
+    # next tick until the bar is full (60 HP a second), not the whole bar at once.
+    "evxx_heal": dict(
+        room="S_10/S_1002/S_1002",
+        drive="20:hp=10;30:evxx=8;30:stats;31:stats;32:stats;40:stats;80:stats;90:quit",
+        expect=["t30 EventXX(8)", "hp 10/60", "hp 11/60", "hp 12/60", "hp 20/60", "hp 60/60"]),
     # Issue #68: the sound FUN_00585ff0's tail plays at the pickup is p_takeitem (88) except for the Strength /
     # Defense / MP Drops, which play s_growup0 / 1 / 2 (7 / 13 / 14) [BYTES 0x586591, 0x5865f1, 0x586672]. All
     # are collected on their 51st tick (age > 50), at the pickup's own position.
@@ -858,8 +872,10 @@ CASES = {
         room="S_10/S_1002/S_1002", env=dict(CLERIA_CHAR="2", CLERIA_DMG="1"),
         drive="10:abil;" + ";".join("%d:near=17;%d:atk" % (t, t + 1) for t in range(20, 200, 25)) +
               ";210:abil;220:quit",
+        # (combo 12 since 2026-10-17, was 16: with the frustum planes scaled by 1 / |n|^2 the Selnargs move otherwise and
+        # four fewer hits land.)
         expect=["hit Selnarg (lv3 DEF 53): 2 dmg, 72/74 left", "hit Selnarg (lv3 DEF 53): 2 dmg, 70/74 left",
-                "[abil] t210", "combo 16/"]),   # #57: his two eyes' section-7 shots (0x82) land too
+                "[abil] t210", "combo 12/"]),   # #57: his two eyes' section-7 shots (0x82) land too
     # build/audit/ROUTE_F13_HUGO.md: a player particle runs the rest of FUN_004fed50's mode-0 scan
     # (EFFECTHIT.md §5.1): Hugo's shot smashes a pot (@Break_30) and breaks the S_2008 wall (0x186 child
     # sphere -> s_Kabe00, 471), which only a swing could do before. The S_2015 wall is the way to S_2010.
@@ -1040,7 +1056,9 @@ CASES.update({
         room="S_10/S_1080/S_1080", char="1", env=dict(_LOCK, CLERIA_LEVEL="1"),
         drive=_S1080.format(end=4900, cast=50) + "4699:gauge;4700:hp=0;4822:gauge;4894:gauge;4900:quit",
         expect=["cast 50 hp 1860/1860", "gauge 1 id 167", "[death] HP 0", "[gameover] chose retry", ">> entering S_1080",
-                "[gameover] Retry -> S_1080", "cast 50 hp 200/200", "gauge 0 id 0", "| lv 5 max 1860 atk 56",
+                # (2026-10-17, the frustum planes scaled by 1 / |n|^2: Vagullion is in view on the first tick after the load,
+                # so the INIT re-stat runs before the first `duel` sample and Chr_SetStatus's 200 is no longer seen.)
+                "[gameover] Retry -> S_1080", "gauge 0 id 0", "| lv 5 max 1860 atk 56",
                 "gauge 1 id 167"], absent=["[duel] lost", "boss_defeated"]),
     # S_3080 Yunica: Kishgal (M860) ends the fight at half HP in this room -> 174 = 1 -> the Silver
     # Harmonica scene -> 232 = 1 and ChangeScene to S_1000. The half-HP end is read at t8900 (was t8850): a pillar
@@ -1205,6 +1223,15 @@ CASES.update({
         # one bystander fewer walks into the swings. The kill of #60 and its revival are as before.
         expect=["[revive] #186 cast 60 hp 261 phase 1 7a0 0 gnd 1 t 0.000 y -4.00", "defeated 1", "stats exp 2 lv 1",
                 "cast 60 revived as #207 (section 10)"]),
+    # M560's re-bury (+0x38c, FUN_0045c490 [EXPORT 0045c490.c:121-160]): #60 chases Yunica out of the sand, she is put
+    # 22 away, it gives up past 20 (phase 1, surfaced on sand2: +0x7a0 2), sinks, and once its feet are 2.25 under the
+    # sand top the probe sets +0x38c and phase 1 buries it again (+0x7a0 0).
+    "karon_rebury": dict(
+        room="S_40/S_4004/S_4004", env=_F4,
+        drive="7:opt=InfiniteOxygen=1;9:opt=DamageTaken=0;20:at3=4.6,-1,12,90;100:every=12,200,near=#60;"
+              "320:at3=4.6,-1,34,0;1500:quit",
+        expect=["[revive] #60 cast 60 hp 261 phase 2 7a0 1", "[revive] #60 cast 60 hp 261 phase 1 7a0 2",
+                "[revive] #60 cast 60 hp 261 phase 1 7a0 0"]),
     # M570 Zarue summons its hands (M410) next to the player in S_4006; they appear and are removed.
     "zarue_summon": dict(
         room="S_40/S_4006/S_4006", env=_F4,
@@ -1290,7 +1317,8 @@ CASES.update({
         env={"CLERIA_AI": "1", "CLERIA_LOS": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:seen=#17,4;60:every=200,1300,seen=#17,5;"
               "100:every=200,1300,move=1,0.5,40;160:every=200,1300,move=-0.5,1,40;1300:quit",
-        expect=["seen #17 placed", "[ai] #17 cast 17 phase 2", "seen #17 placed feet (9.58, 0.00",
+        # (9.78 since 2026-10-17, was 9.58: the frustum planes scaled by 1 / |n|^2 move the Vilvan's rolls.)
+        expect=["seen #17 placed", "[ai] #17 cast 17 phase 2", "seen #17 placed feet (9.78, 0.00",
                 "[ai] #17 cast 17 phase 2"],
         absent=["[los]"]),
     # build/mech_re/KEEPOUT_BOXES.md (FUN_0042dc90): a monster cannot stand in an exit volume. S_1004's S_1001 door
@@ -1428,8 +1456,10 @@ CASES.update({
         room="S_20/S_2017/S_2017", env={"CLERIA_DUST": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:opt=DamageDealt=0.1;20:seen=#24,4;60:every=40,600,near=#24,1.4;"
               "61:every=40,600,atk;700:quit",
-        expect=["[blood] t71 slime: 1 splats ff22cc44 at (1.71, 1.33, 17.98), 6 draws",
-                "glob: 2 splats ff22cc44 at (1.29, -0.04, 17.96), 12 draws"]),
+        # Re-pinned 2026-10-17 (the frustum planes scaled by 1 / |n|^2: the room's other monsters think on other ticks and
+        # the shared xorshift moves): the first puddles at t86, the glob's at t220.
+        expect=["[blood] t86 slime: 1 splats ff22cc44 at (0.28, 1.33, 20.29), 6 draws",
+                "glob: 2 splats ff22cc44 at (0.13, 1.52, 17.30), 12 draws"]),
     # build/audit/REACQUIRE.md §4.1: four pins of what the original's own rules do (so that nobody "fixes" them away).
     # The teleport sweep (§1.1): a Riffligan re-acquires at the first [ai] sample after each return; the placement
     # commands re-seed the ledge guard (§1.3), so no [ledge] snaps the player back to the old spot.
@@ -1459,7 +1489,9 @@ CASES.update({
         env={"CLERIA_AI": "1", "CLERIA_LOS": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;20:seen=#35,4;150:move=0.988,0.152,420;"
               "580:move=-0.988,-0.152,480;1290:quit",
-        expect=["[los] t798 #35 cast 35 2->1", "blocked 1", "[los] t862 #195 cast 35 2->1", "dist 10.86 blocked 0"]),
+        # Re-pinned 2026-10-17 (the frustum planes scaled by 1 / |n|^2 move the jumps): the side wall's drop of #35 at
+        # t798 (blocked 1) is gone; #195's dy drop comes at t1075.
+        expect=["[los] t1075 #195 cast 35 2->1", "dist 10.73 blocked 0"]),
     # C4: a far-frozen Hekat-Baocar (25 u or more: the ASO step only) keeps phase 2 across the absence and attacks
     # at once on the return; the [ai] log says "frozen" for it instead of printing nothing.
     "far_freeze_keeps_phase": dict(
@@ -1532,11 +1564,14 @@ CASES.update({
     # Damage dealt 8 the fight has every event again, in the same order: band 5 from t3390, the kill at t4730 (was
     # t2890 at 10), destroyed at t5069 — hence the longer run. The knock-down counter is caught by the 30-tick status
     # line at 11 (was at 1): "down 11 ".
+    # Re-pinned 2026-10-17 (#174: the room's animated models of update kind 1 / 3 play their section 0 from the
+    # load): the fight differs from t840 on and has every event, later: the kill at t6453 (was t4930 on master),
+    # destroyed at t6792, so the run ends at t7400 (was 5400).
     "khonsclard_fight": dict(
         room="S_40/S_4099/S_4099",
         env={"CLERIA_BOSSLOG": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=8;20:at=-2.8,23.3,0;"
-              "40:every=20,700,ok;720:every=40,5400,boss4;728:every=40,5400,atk;5400:quit",
+              "40:every=20,700,ok;720:every=40,7400,boss4;728:every=40,7400,atk;7400:quit",
         expect=["[boss04] Khonsclard: body 3000, pods 600", "clip START fr", "f156 1", "states 00", "down 11 ",
                 "band 2", "band 5", "flag 223 = 1", "EXP 328", "destroyed"]),
     # The world-anchored mini gauges (build/mech_re/MINI_GAUGE.md; the shared store 0x76c1cc.., worldgauge.hpp): a hit
@@ -1788,7 +1823,7 @@ CASES.update({
         env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
         drive="3:opt=InfiniteMP=1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=1.0;8:tier=10;"
               "9:flag=205,1;10:saveload;11:flag=116,1;12:flag=117,1;13:flag=118,1;14:flag=182,3;15:flag=183,3;"
-              "16:flag=184,3;17:bracelet=116;60:boss7;7800:quit",
+              "16:flag=184,3;17:bracelet=116;60:boss7;9000:quit",
         expect=["[boss07] Dalles: HP 2500 STR 255, parts DEF 255 pool 25000, options 1000",
                 "the fight starts at (0.00,4.00,0.00)", "target the core with the sword", "clip N_SHOOT_R (variant 0)",
                 "bullet kind 0x2 effect 409", "the swing hits part 0 (class 3)", "clip N_SHOOT_L (variant 0)",
@@ -1831,8 +1866,13 @@ CASES.update({
                 # the pool, the hit spark): at 1.25 the fight ended at t4830 without the capture; at 1.0 every beat is
                 # here — the dark barrier falls with both options (t3755), the capture comes with them revived
                 # (t4462; the other dimension t4671..5233), it falls twice more and the death is at t6651.
-                "barrier D up", "phase 2 (max HP 4250)", "target option", "option R destroyed",
-                "bullet kind 0x25 effect 54", "CamSlot 3", "barrier D broken (window 699)", "option L destroyed",
+                # Re-pinned 2026-10-17 (#174: the options boss07op and the wing boss07w are models of update kind 1,
+                # so they play their section 0 from the load and the hulls bound to their bones move with it). At
+                # 1.0 every beat is still here, later: option L goes first (t3532), the dark barrier falls with
+                # option R (t3754), the capture comes with the options revived (t4203; the other dimension
+                # t4412..4974), it falls twice more and the death is at t7821, so the run ends at t9000 (was 7800).
+                "barrier D up", "phase 2 (max HP 4250)", "target option", "option L destroyed",
+                "bullet kind 0x25 effect 54", "CamSlot 3", "barrier D broken (window 699)", "option R destroyed",
                 "target the core with the sword", "barrier D up", "option R revived (1000)", "option L revived (1000)",
                 "clip SIS_LAZER_START", "the capture circle at",
                 "the player is captured", "CamSlot 5", "every particle removed", "mode 0 -> 4", "clip KIAI_START",
@@ -2054,7 +2094,7 @@ CASES.update({
     "updraft_s6009": dict(
         room="S_60/S_6009/S_6009", char="3",
         drive="5:flag=475,1;10:saveload;40:at3=-10,8,96,0;150:move=0,1,60;260:pos;270:quit",
-        expect=["t260 pos", "16.000, 103."]),
+        expect=["t260 pos", "16.000, 104."]),   # (104 since 2026-10-17, was 103: the frustum scale moves the room's monsters)
     # ROUTE_F47.md R6: S_4015's two unnamed s40step_02 platforms play their section 0 ('Default') from the load
     # (the YMO loader's section 0, FUN_005f31d0) — the only way across the y 26 gaps to switch_01. Object #6
     # (SOB index 6) slides from x -68.8 to -55.2 and carries Toal standing on it (-68.0 -> -67.3 in 40 ticks).
@@ -2241,6 +2281,8 @@ CASES.update({
     # Stage 2 for 5,000 of the 5,002. A second boot reads the balance and the purchase back.
     # Re-pinned 2026-10-17 (the wall clank's sparks and the boss parts' hit spark / elemental effect: their draws of
     # the shared xorshift): the run banks 1719 SP (Arena SP 5119), clears in 1595 frames; the shop leaves 119.
+    # Re-pinned 2026-10-17 again (the frustum planes scaled by 1 / |n|^2): it banks 1641 SP (Arena SP 5041) and clears in
+    # 1550 frames; the shop leaves 41.
     "arena_stage1_bank_shop": dict(
         room=None, env=dict(_LOCK, CLERIA_NYA="1"),
         records={"record.ta2": clear_data((1, 1, 1), tiers=[(2, 0)]), "record.ar2": [3400]},
@@ -2251,13 +2293,13 @@ CASES.update({
         expect=["[title] Arena Mode: Character Select", "[stage] Arena stage select: Yunica, column 1, 1 row(s), cursor 0",
                 "[stage] row 0 (Wailing Blue): the run starts in S_9109", "[script] SetLevel(1): HP 60",
                 "[cont] snapshot S_9109 (-0.09, 2.00, 41.98)", "[arena] Arena(cast 14, level 0, count 0): 8 spawned",
-                "[arena] Arena(cast 53, level 8, count 0): 8 spawned", "[arena] ArenaSave: SP 1719 banked, Arena SP 5119; record.ar2 saved",
-                "stage 0 (Wailing Blue) cleared in 1595 frames = 00:26:583 (a record)",
+                "[arena] Arena(cast 53, level 8, count 0): 8 spawned", "[arena] ArenaSave: SP 1641 banked, Arena SP 5041; record.ar2 saved",
+                "stage 0 (Wailing Blue) cleared in 1550 frames = 00:25:833 (a record)",
                 "[arena] the run ends: record.ar + record.are saved", "[game] Return to Title",
                 "[stage] Arena stage select: Yunica, column 1, 1 row(s), cursor 0", "shot back.ppm",
-                "[stage] Cancel: record.ar + record.are saved", "[shop] opened: Arena SP 5119",
-                "[shop] bought Arena Stage 2 for 5000: Arena SP 119; record.ar2 + record.ta2 saved",
-                "==== second boot", "[clear] record.ar2: Arena SP 119"],
+                "[stage] Cancel: record.ar + record.are saved", "[shop] opened: Arena SP 5041",
+                "[shop] bought Arena Stage 2 for 5000: Arena SP 41; record.ar2 + record.ta2 saved",
+                "==== second boot", "[clear] record.ar2: Arena SP 41"],
         count={"[arena] Arena(": 13}, absent=["[gameover]"], files=["record.ar", "record.are", "record.ar2"]),
     # ARENA.md §5.1, the game over in an Arena run (Hugo, Stage 1): the pilot earns SP in the first waves; the pause
     # book does not open (`esctap`); at the death no card, Retry / Return to Title. Retry is InitArena's snapshot: the
@@ -2309,12 +2351,14 @@ CASES.update({
     "diff_hard": dict(
         room="S_10/S_1001/S_1001",
         drive="3:diff=3;4:saveload;20:actors;30:hurt=60;40:quit",
-        expect=["id 14 cast 14 enemy hp 72", "id 19 cast 19 enemy hp 134", "Chr_Damage player atk 60 -> HP 26"]),
+        # Re-pinned 2026-10-17 (the frustum planes scaled by 1 / |n|^2, FUN_005eca30: the monsters' culling moves the shared
+        # xorshift, so the hit is priced on another roll): 21 on Normal, 21 x 1.5 + 1 = 32 here.
+        expect=["id 14 cast 14 enemy hp 72", "id 19 cast 19 enemy hp 134", "Chr_Damage player atk 60 -> HP 28"]),
     # ... and Very Easy (G1: flags 143 AND 203): HP x0.75 = 45, the same hit halved to 11.
     "diff_very_easy": dict(
         room="S_10/S_1001/S_1001",
         drive="3:diff=0;4:saveload;20:actors;30:hurt=60;35:flagdump;40:quit",
-        expect=["id 14 cast 14 enemy hp 45", "Chr_Damage player atk 60 -> HP 49", " 143=1 ", " 203=1"]),
+        expect=["id 14 cast 14 enemy hp 45", "Chr_Damage player atk 60 -> HP 50", " 143=1 ", " 203=1"]),   # 21 / 2 since the frustum re-pin
     # ... and Normal stays: 60 HP, the hit takes 22. A kill credits the victim's +0xc4 SP (4 for a level-1
     # Rif, FUN_004202e0 0x420505..) through FUN_004fa390: four kills, +16.
     "diff_normal_kill_sp": dict(
@@ -2322,7 +2366,10 @@ CASES.update({
         drive="4:saveload;8:opt=OneHitKill=1;20:actors;21:stats;30:hurt=60;31:opt=DamageTaken=0;"
               "41:every=12,300,nearest=;42:every=12,300,atk;400:stats;410:quit",
         expect=["id 14 cast 14 enemy hp 60", "id 19 cast 19 enemy hp 112", "hp 60/60 sp 0",
-                "Chr_Damage player atk 60 -> HP 38", "defeated 1 (6 left)", "hp 38/60 sp 18"]),   # 18 (a new game starts at 0 SP) since FIX_SLOTS S6 (was 16): a 2-SP drop in reach is collected under the window's Fix(0) held from t98
+                # (18 since FIX_SLOTS S6, was 16: a 2-SP drop in reach is collected under the window's Fix(0) held from t98.
+                # Re-pinned 2026-10-17, the frustum scale 1 / |n|^2: the hit rolls 21, and the course kills three Rifs,
+                # +12, and collects a 1-SP drop.)
+                "Chr_Damage player atk 60 -> HP 39", "defeated 1 (7 left)", "hp 39/60 sp 13"]),
     # STATUS_AILMENTS.md (issue #60): poison 900 ticks, a 1-HP tick each 120 (max(1, 60 / 150)) with the magenta
     # number; heavy walks (3.36 in 60 ticks, a run does 9.4); confuse reverses the stick (back to the start);
     # curse lands and the Blue Necklace (accessory 55) ends it on the next tick.
@@ -3433,7 +3480,9 @@ CASES.update({
         drive=_VELA + "4600:quit",
         expect=["[zoomblur] t1051 ZoomBlur(0.0100, 0.0050)", "draw strength 0.0150 alpha 3 taps 3 centre (0.500, 0.500)",
                 # Re-pinned 2026-10-17 (the wall clank's sparks and the boss parts' hit spark / elemental effect: their draws of the shared xorshift): the bite at t3833, the mouth at (0.487, 0.316).
-                "ZoomBlur(0.3800, -0.0012)", "ZoomBlur(0.4000, -0.0200)", "draw strength 0.3800 alpha 97 taps 3 centre (0.487, 0.316)"]),
+                # Re-pinned 2026-10-17 again (#182: the RUN parts' contacts are FUN_004fe1a0, a knock-down with one unused
+                # draw and no HP, and the frustum scale): the bite at t3893, the mouth at (0.489, 0.317).
+                "ZoomBlur(0.3800, -0.0012)", "ZoomBlur(0.4000, -0.0200)", "draw strength 0.3800 alpha 97 taps 3 centre (0.489, 0.317)"]),
     # The boss hit flash (§3.2, FUN_00504140): the stun part's damage sets obj+0x2a0 = 1.65, the brain's tail decays
     # it once (1.575) before the draw, whose additive colour is (107, 55, 19) / 255 x 0.5 x (1.575 - 0.65).
     # (t2040, was t2034: since e44f09f the first hit on the re-bound hull lands 6 ticks later; the values are the same.)
@@ -3537,7 +3586,7 @@ CASES.update({
               "180:nearest=6;181:actors;300:actors;301:quit",
         expect=["131=1", ">> entering S_1003", "t100 dflags", "131=0", ">> entering S_1003", "t170 dflags", "131=0",
                 "t181 actors", "id 43 cast 43 enemy hp 86 g1 0 pos (-28.4,0.2,-6.4)", "t300 actors",
-                "id 43 cast 43 enemy hp 86 g1 0 pos (-27.4,0.2,-9.1)"]),
+                "id 43 cast 43 enemy hp 86 g1 0 pos (-28.2,0.2,-8.2)"]),   # (-28.2, -8.2) since the frustum re-pin of 2026-10-17
     # S_5013's seven falling steps (@Fall_001: on Normal and above a touched step sinks 0.025 a tick for 10 ticks,
     # 0.05 for 10, loses its collision at tick 20 and is back at tick 120), crossed with real inputs: Toal on Hard
     # with the double jump and the dash, one placement at the start of the run, then a double tap and the stick held
@@ -3832,7 +3881,7 @@ CASES.update({
         drive="2:level=40;3:flag=187,1;4:flag=188,1;5:opt=InfiniteHP=1;12:boost=30000;20:boostkey;22:abil;90:boostkey;91:abil;"
               "300:abil;400:abil;401:quit",
         expect=["[abil] t22 sec 0x2 mp 3000 lag 3000 boost 29940 boosting 1", "[abil] t91 sec 0x139", "[abil] t300 sec 0x139",
-                "combo 3/", "[abil] t400 sec 0x2"]),
+                "combo 2/", "[abil] t400 sec 0x2"]),   # 2 (was 3) since the frustum re-pin of 2026-10-17: the monsters stand elsewhere
     "kit_f4_hugo": dict(
         room="S_40/S_4001/S_4001", char="2", env=_LOCK,
         drive="2:level=40;3:flag=187,1;4:flag=188,1;5:opt=InfiniteHP=1;8:killall;12:boost=30000;20:boostkey;22:abil;90:boostkey;"
@@ -4147,7 +4196,7 @@ CASES.update({
         room="S_30/S_3005/S_3005", env=dict(CLERIA_DMG="1"),
         drive="20:mesh=fire00;120:mesh=fire00;121:mesh=fire02;125:at=2.5,34,0;600:pos;601:quit",
         expect=["mesh fire00 pos (-2.00, 2.00, 34.00) clip 0 t 4.8", "mesh fire00 pos (-2.00, 2.00, 34.00) clip 0 t 29.8",
-                "mesh fire02 pos (52.00, 2.00, 34.00) clip 0 t 30.0", "fire00 -> @touch_toge", "[hurt] dmg 96 (atk 120"]),
+                "mesh fire02 pos (52.00, 2.00, 34.00) clip 0 t 30.0", "fire00 -> @touch_toge", "[hurt] dmg 95 (atk 120"]),   # 95 (was 96) since the frustum re-pin of 2026-10-17: another roll
     "blades_spin_s3008": dict(
         room="S_30/S_3008/S_3008", drive="120:mesh=fire00;121:mesh=fire06;122:quit",
         expect=["mesh fire00 pos (86.00, 4.00, 36.00) clip 0 t 29.8", "mesh fire06 pos (42.10, 1.00, 18.85) clip 0 t 30.0"]),
@@ -4241,10 +4290,12 @@ CASES.update({
     "sepaswait_sand": dict(
         room="S_40/S_4006/S_4006", env=_F4,
         drive="9:opt=DamageTaken=0;10:at=12,11,90;100:actors;101:epos=#196,11,20;102:actors;104:actors;105:quit",
-        expect=["id 196 cast 63 enemy hp 254 g1 0 pos (10.0,-0.0,8.7)", "epos #196 (11.00, -3.00, 20.00)",
-                "[ai] t101 M590 #196 over water (11.00, -1.92, 20.00) -> (10.48, 1.05, 14.36)",
+        # Re-pinned 2026-10-17 (the frustum planes scaled by 1 / |n|^2: the Sepaswait walks elsewhere before the epos and
+        # the launch lands it at (12.11, 14.33)).
+        expect=["id 196 cast 63 enemy hp 254 g1 0 pos (13.1,-0.0,8.8)", "epos #196 (11.00, -3.00, 20.00)",
+                "[ai] t101 M590 #196 over water (11.00, -1.92, 20.00) -> (12.11, 1.05, 14.33)",
                 "[ai] t102 #196 cast 63 swim block: origin y 1.05 -> 0.00 (surface 1)",
-                "t104 actors", "id 196 cast 63 enemy hp 254 g1 0 pos (9.6,-0.0,9.8)"]),
+                "t104 actors", "id 196 cast 63 enemy hp 254 g1 0 pos (12.7,-0.0,11.5)"]),
     "menoak_resists_yunica": dict(
         room="S_20/S_2008/S_2008", char="1", env=dict(_LOCK, CLERIA_DMG="1"), drive=_MENOAK,
         expect=["hit Menoak (lv14 DEF 91): 0 dmg, 146/146 left", "t124 sec 0x10d", "): 0 dmg, 146/146 left", "t224 sec 0x10e",
@@ -4350,6 +4401,43 @@ CASES["route_s5013_fall_yunica"] = dict(
     absent=["NOT reached"])
 
 CASES.update(aplua_regress.CASES)
+_APP = aplua_regress.P
+CASES.update({
+    # The Archipelago cases that drive with this file's routes (the mod repository's .dev/port_cases.py).
+    # Toal's story flag 289 held in Rado's Annex (aplua_toal_annex): the Shion fight's chain ends with it set: S_4104
+    # runs EV_4104_Thor (not the stopper branch), on to S_4017 and S_4021, where 232 = 1 stops S_3080 from starting
+    # the fight again; back in S_3006, 289 is back.
+    "aplua_toal_shion_chain": dict(
+        room="S_30/S_3080/S_3080", char="3", aplua={}, env=dict(_LOCK, CLERIA_LEVEL="32"),
+        drive="5:flag=289,1;" + _S3080.format(end=30000, cast=170) + "29990:lua=apflag 232;29995:lua=apflag 289;30001:quit",
+        expect=[_APP + "repair: Rado's Annex: Toal's story flag 289 held at 0", ">> entering S_4104", ">> entering S_4017",
+                ">> entering S_4021", ">> entering S_3006", _APP + "repair: Rado's Annex: Toal's story flag 289 put back",
+                _APP + "flag 0xE8 = 1", _APP + "flag 0x121 = 1"],
+        absent=["script Kadena_Stopper"]),
+    # The statue shop (mod API 5): "Increase stationary heal rate" (@Grow00, 1000 SP in vanilla) is sold at the
+    # seed's price for its location, on the row, at the wallet test and at the deduction, and the purchase is its check.
+    "aplua_shop_price": dict(
+        room="S_10/S_1009/S_1009", aplua=dict(slot_data=dict(blessing_costs={"5857332": 70})),
+        drive=CLEANSE + ";200:sp=250;220:act;290:down;300:ok;390:down;400:ok;480:ok;570:ok;650:ok;730:ok;820:esc;835:stats;840:quit",
+        expect=["[content] blessing_bought 0 for 70 SP", "check 5857332 Divine Blessing: Increase stationary heal rate"],
+        absent=["not supported: Shuffled blessing prices"]),
+    # one_per_floor: on the first floor visited only the cheapest slot is on sale. The heal rate (70) is the
+    # second cheapest here, so the same purchase is refused (the wallet test at 1000000).
+    "aplua_shop_pacing": dict(
+        room="S_10/S_1009/S_1009", aplua=dict(slot_data=dict(blessing_costs={"5857332": 70, "5857339": 60}, blessing_shop_unlock=1)),
+        drive=CLEANSE + ";200:sp=250;210:lua=apflag 152;220:act;290:down;300:ok;390:down;400:ok;480:ok;570:ok;650:ok;730:ok;"
+              "820:esc;835:stats;840:quit",
+        expect=["sp 250"], absent=["blessing_bought", "not supported: Blessing shop pacing"]),
+    # blessing_items: the same purchase is the check and nothing else; the heal rate's bit (0 of flag 217) stays
+    # unset, its effect being an item of the pool.
+    "aplua_shop_blessing_items": dict(
+        room="S_10/S_1009/S_1009", aplua=dict(slot_data=dict(blessing_items=True, blessing_costs={"5857332": 70})),
+        drive=CLEANSE + ";200:sp=250;220:act;290:down;300:ok;390:down;400:ok;480:ok;570:ok;650:ok;730:ok;820:esc;835:stats;"
+              "836:lua=apflag 217;840:quit",
+        expect=[_APP + "blessing 0 bought for 70 SP: its effect is an item of the seed",
+                "check 5857332 Divine Blessing: Increase stationary heal rate", _APP + "flag 0xD9 = 0"],
+        absent=["not supported: Blessing items"]),
+})
 # The .cleriamod install cases: a mod file on the command line (tools/modfile_regress.py, MODFILE.md).
 import modfile_regress  # noqa: E402
 CASES.update(modfile_regress.CASES)
@@ -4424,7 +4512,7 @@ def frame_edges(path, name, seams):
 # (darm_fight, ~7 minutes) does not start last and run on alone.
 LONG = ["darm_fight", "darm_onfoot", "duel_s1080_vagullion_long", "duel_s3080_toal_win", "duel_s6099_hugo", "dalles_fight",
         "duel_s3080_toal_lose", "duel_s3080_kishgal", "route_s4015", "duel_s3080_shion", "scene_light",
-        "route_s4015_yunica", "route_s4015_hugo"]
+        "route_s4015_yunica", "route_s4015_hugo", "aplua_toal_shion_chain"]
 
 
 def content_setup(case, env, tmp):
