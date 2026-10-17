@@ -69,7 +69,7 @@
                                                     {feet.x, feet.y + kOriginH + 0.75f, feet.z}));
                     // ...then on to the tail's red damage number with 0 (0x4fda7d -> 0x4fe120).
                     damage_popup(0, 0xff0000, {feet.x, feet.y + kOriginH, feet.z});
-                    const Impulse k = knock_impulse(angle, 0.1f);
+                    const Impulse k = knock_impulse(angle, avm.section() == 9 ? 0.0f : 0.1f);   // k = 0 in section 9 (0x4fd385)
                     player_kb.x += k.x; player_kb.z += k.z;
                     return;
                 }
@@ -83,7 +83,7 @@
                         popups.push_back(make_popup("GUARD", 0xffaa00, 0.75f,
                                                     {feet.x, feet.y + kOriginH + 0.75f, feet.z}));
                     damage_popup(0, 0xff0000, {feet.x, feet.y + kOriginH, feet.z});
-                    const Impulse k = knock_impulse(angle, 0.1f);
+                    const Impulse k = knock_impulse(angle, avm.section() == 9 ? 0.0f : 0.1f);   // k = 0 in section 9 (0x4fd385)
                     player_kb.x += k.x; player_kb.z += k.z;
                     return;
                 }
@@ -106,7 +106,7 @@
                             popups.push_back(make_popup("GUARD", 0xffaa00, 0.75f,
                                                         {feet.x, feet.y + kOriginH + 0.75f, feet.z}));
                         damage_popup(0, 0xff0000, {feet.x, feet.y + kOriginH, feet.z});
-                        const Impulse k = knock_impulse(angle, 0.1f);
+                        const Impulse k = knock_impulse(angle, avm.section() == 9 ? 0.0f : 0.1f);   // k = 0 in section 9 (0x4fd385)
                         player_kb.x += k.x; player_kb.z += k.z;
                         return;
                     }
@@ -164,6 +164,51 @@
                 if (died) audio.play(kSfxDeathEntry, kSfxAnimVol);
                 hud.debug_message("-" + std::to_string(dmg) + " HP");
                 if (died) player_death();
+            };
+            // FUN_004fe1a0, the alt applier of a boss-fight record with +0x11c & 8 (FUN_004fe9e0 0x4fec7a,
+            // FUN_00505640): it takes NO HP (VELAGUNDER.md U3, [C-DIS] 0x4fe1a0..0x4fe9db). One unused draw
+            // (0x4fe1e6); the skill-section guards, which cancel nothing (0x4fe31a..0x4fe53d); the status
+            // loops (path B); the hurt bits; then a big reaction always, unless in section 5 or anime_Durable.
+            // [not modelled] the leg guard of equip bit 0x200 (no item sets it), Hit_NotifyAttacker, +0x4d4.
+            auto hurt_player_alt = [&](float angle, int status = 0) {
+                if (p_untouchable) return;
+                float k = avm.section() == 9 ? 0.0f : 0.1f;    // 0x6bd19c, 0 in section 9
+                (void)pick_rng.next();                         // 0x4fe1e6..0x4fe225: the value is unused
+                bool guard = false;
+                if (character == 2) {                          // the Force Shield: one charge, no barrier test
+                    if (shield_on && shield_hits > 0) { --shield_hits; guard = true; }
+                    if (guard) player_iframes = std::max(player_iframes, 16);
+                } else if (const skillmp::Armor ar = skillmp::armor(character, avm.section(), avm.marker(), player.sp_cur, skin);
+                           ar.active) {
+                    player_iframes = std::max(player_iframes, skillmp::kArmorIframes);
+                    if (ar.guard) { player.sp_cur -= ar.spend; guard = true; }
+                }
+                if (guard) {                                   // the white flash, SE 121, "GUARD": no damage number
+                    player_white_flash(hitfx::kGuardFlashStep);
+                    audio.play(0x79, kSfxAnimVol);
+                    if (popups.size() < 32)
+                        popups.push_back(make_popup("GUARD", 0xffaa00, 0.75f,
+                                                    {feet.x, feet.y + kOriginH + 0.75f, feet.z}));
+                }
+                if (status != 0)                               // 0x4fe666..0x4fe7d7 (the HP is >= 1: both passes)
+                    ailments::on_hit_flag8(std::uint32_t(status), float(player.hp), game.g_flags[144],
+                                           [&] { return int((pick_rng.next() >> 17) % 100u); }, ail_apply);
+                player_hurt_this_tick = true;                  // +0x3bc |= 6, whatever the damage (none)
+                const int sec = avm.section();
+                if (sec != 5) {
+                    player_iframes = std::max(player_iframes, 16);
+                    if (!avm.durable()) {                      // 0x4fe804..0x4fe8d2: the record's rtype is not read
+                        k += 1.2f;                             // 0x6bd484
+                        pad_rumble(pad::hit_effect(9));        // FUN_005d3500(3)
+                        face_dir = {std::cos(angle + 3.14159265f), 0, std::sin(angle + 3.14159265f)};
+                        avm.set_section(9);
+                    }
+                }
+                const Impulse kk = knock_impulse(angle, k);    // 0x4fe8d8..0x4fe924
+                player_kb.x += kk.x; player_kb.z += kk.z;
+                if (std::getenv("CLERIA_DMG"))
+                    std::printf("  [hurt] alt applier (no HP) section %d -> %d knock %.2f at %.1f deg%s\n", sec,
+                                avm.section(), k, angle * 57.29578f, guard ? " GUARD" : "");
             };
             #include "view_xso13_damage.inl"     // 0x15c Chr_Damage on the player (FLOOR13_OPS.md)
             prof("tick:enemy-hits-player");
@@ -242,7 +287,12 @@
                     if (!overlap(vol, pbody, &hang)) continue;
                     if (player_bank.check_and_record(0xB0550000u, 30)) break;
                     const int hp0 = player.hp;
-                    hurt_player(boss->str(), bp.power, bp.rtype, hang);
+                    // FUN_004fe9e0 in a boss fight (0x76bb8c): +0x11c & 2 takes the knock angle 3 pi / 2 - the
+                    // boss's yaw, & 8 runs FUN_004fe1a0 (the RUN parts 3, 4, 15..20: a knock-down, no HP).
+                    const bool fight = game.g_flags[156] != 0;
+                    if (fight && (bp.flags & 2u)) hang = 4.71238899f - boss->yaw();   // 0x6bd858
+                    if (fight && (bp.flags & 8u)) hurt_player_alt(hang);
+                    else hurt_player(boss->str(), bp.power, bp.rtype, hang);
                     if (std::getenv("CLERIA_DMG"))
                         std::printf("  [hurt] t%llu velagunder part %d (STR %.0f power %.1f rtype %d r %.2f) player hp %d -> %d\n",
                                     (unsigned long long)tick_count, int(&bp - &boss->parts()[0]), boss->str(), bp.power,

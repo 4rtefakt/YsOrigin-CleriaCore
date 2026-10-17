@@ -43,6 +43,10 @@ auto enemy_surfaces = [&](Actor& a) {
     const float s = mode == 1 && !skip ? water_above(pm, a.pos.x, o0, a.pos.z) : kNoFloor;
     const bool splash = water_test(wb, a.vert, mode, skip, s > kNoFloor, s, o0);
     const bool probe = mode == 1 && !skip;
+    // +0x38c, cleared every call and set when the up-ray from o0 meets the sand top more than 2.25 above while the floor
+    // ray's surface is sand2 [EXPORT 0045c490.c:121-160; DOC backlog/A20_B12_B14_LAUNCH_EVENTS_REVIVE.md §3.3]. Karon's
+    // brain reads it on the next tick: the re-bury.
+    a.ai.buried_deep = probe && s > kNoFloor && a.ai.surf_ray == 0x12 && s - o0 > 2.25f;
     if (probe || mode == 2) {
         if (probe && a.ai.splash_cd) --a.ai.splash_cd;
         if (a.ai.bubble_t) --a.ai.bubble_t;

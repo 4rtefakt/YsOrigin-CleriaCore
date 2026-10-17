@@ -17,7 +17,7 @@
 // is not written by the ctor].
 // [approx] the mover's contact record is not kept: a side contact is the player's collision sphere
 // (origin, r 0.675 + 0.05) overlapping the entry's triangles, a floor contact the feet probe
-// (origin down to feet - 0.2) hitting them. [U3] FUN_004fe1a0 is run as FUN_004fd350.
+// (origin down to feet - 0.2) hitting them. FUN_004fe1a0 (U3) is hurt_player_alt: a knock-down, no HP.
 if (boss && !boss->destroyed() && player.hp >= 1 && player_iframes == 0 && !p_untouchable) {
     const RoomMesh& cm = phys_mesh(room);
     const RoomMesh::ObjRange* br = cm.object_range("boss01");
@@ -94,7 +94,8 @@ if (boss && !boss->destroyed() && player.hp >= 1 && player_iframes == 0 && !p_un
         const float ang = game.g_flags[156] != 0 ? 4.71238899f - boss->yaw()   // 0x6bd858
                                                  : std::atan2(O.z - bp.z, O.x - bp.x);
         const int hp0 = player.hp;
-        hurt_player(boss->str(), 18.0f, 0, ang);
+        if (boss->contact_alt()) hurt_player_alt(ang);   // FUN_004fe1a0 (not fight-gated, 0x505640): no HP
+        else hurt_player(boss->str(), 18.0f, 0, ang);
         if (std::getenv("CLERIA_DMG"))
             std::printf("  [hurt] t%llu velagunder body entry %zu flags 0x%x (%s, STR %.0f power 18) player hp %d -> %d\n",
                         (unsigned long long)tick_count, k, e.flags, side ? "side" : "floor", boss->str(), hp0, player.hp);
