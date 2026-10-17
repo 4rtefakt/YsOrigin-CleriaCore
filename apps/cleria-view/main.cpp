@@ -471,6 +471,16 @@ fn fs_shadow(in : VsOut) -> @location(0) vec4<f32> {
   if (a < 0.004) { discard; }
   return vec4<f32>(0.0, 0.0, 0.0, a * clamp(in.opacity, 0.0, 1.0));
 }
+
+// The light2 under-glow (+0x130 & 0x40000, SHADOWS.md 2.5 state 0x20681): texture x diffuse for colour and alpha,
+// added (SRCALPHA / ONE). [not modelled] the fog of the state.
+@fragment
+fn fs_glow(in : VsOut) -> @location(0) vec4<f32> {
+  let t = textureSample(tex, smp, in.uv);
+  let a = t.a * clamp(in.opacity, 0.0, 1.0);
+  if (a < 0.004) { discard; }
+  return vec4<f32>(t.rgb * in.color.rgb, a);
+}
 )WGSL";
 
 // Effects (SEF/EF2): additive, camera-facing billboards. No fog and no alpha test —

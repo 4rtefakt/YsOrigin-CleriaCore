@@ -33,7 +33,7 @@
 // MatMode's RGB (DARM_A §A.6: Down = black, form change = the outline silhouette) multiplies the vertex colours of
 // the body's and the tail's materials (boss8_set_matmode, Room::mat_rgb).
 // [not modelled] the "damaged limb" material bit 0x20000 and the chest flag word (§A.1.3), the scene light's direction
-// (its colour is drawn: g_scene_light), the player tints (the ctor's grey P+0x290, the fall's P+0x148),
+// (its colour is drawn: g_scene_light), the player tints (the fall's P+0x148),
 // fx+0x1dc |= 0x100 / 0x108 of the inline effects and their pool-full gate (never full here), the `src`
 // argument of FX / FX2 (fx+0x1da), the kill record FUN_00403cd0, flags 518 / 519 / 529..532 / 544..546 (dwords past
 // g_flags), FUN_00461160(0) / P+0x9fc / Toal's two burst effects at the fall, the armor bit of a closed part (no
@@ -172,6 +172,7 @@ auto boss8_reset = [&] {
     if (boss8) boss8_statics = boss8->statics();           // no writer but the band: they outlive the object
     const bool had = boss8 != nullptr;
     boss8.reset();
+    player_glow = false;                                   // the room's player actor goes with it (no code clears the bit)
     if (boss8_pin) { boss8_pin = false; player_hold = false; }
     boss8_owned = false; boss8_mgcra = false; boss8_started = false; boss8_over = false;
     boss8_mat.clear();
@@ -521,12 +522,14 @@ auto boss8_tick = [&] {
         // The ctor's host side (boss08.cpp, the ctor's closing note; DARM.md §3.3 items 8, 10..13, 16): the family's
         // first motions, MatMode(B, 0), CamIdx = 1 @ 0.025 [approx: the header], flag227 = 0, flag215 = 1, the intro
         // cameras 7 / 8 / 9 (eye / target fixed, the fov). [H] the arms and the floor start on their first section
-        // (DARM_A §A.4 for the floor's "a"). [not modelled] the grey player tint, the SE preload.
+        // (DARM_A §A.4 for the floor's "a"). The player's blob shadow becomes the light2 under-glow (DARM.md §3.3 item 11,
+        // 0x551bcb..0x551c10: player_glow). [not modelled] the SE preload.
         meshes.set_clip_index(boss8_name[0], boss8_sect[0][0], 0); bm->time_scale = 1.0f;
         meshes.set_motion(boss8_name[1], "01_NormalWait", false, 0);
         meshes.set_motion(boss8_name[2], "03_Wait", false, 0);
         for (int i : {3, 4}) if (mo[i]->sect < 0 && !mo[i]->clips.empty()) meshes.set_clip_index(boss8_name[i], 0, 0);
         boss8_set_matmode(0);
+        player_glow = true;
         tmdl->rest_pose();
         boss8_tpose.reset(*tmdl);                          // FUN_005f3c70's node records; the eight records are the module's
         boss8_trk_root.fill(-1);
