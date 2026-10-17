@@ -55,15 +55,29 @@ It is not made, endorsed or supported by Nihon Falcom or XSEED, and it contains 
 
 ## 🚀 Getting started
 
-> **CleriaCore is in early access.** There is no installer yet: you build it from source (see
-> [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), it takes a few commands). The story is playable for all three
-> characters; the post-game modes are not in yet (see [What's missing](#-whats-missing)).
+> **CleriaCore is in early access.** The story is playable for all three characters; the post-game modes are
+> not in yet (see [What's missing](#-whats-missing)).
+
+### 📦 Download
+
+Get the package for your system from the [latest release](https://github.com/4rtefakt/YsOrigin-CleriaCore/releases/latest).
+None of them contains any game files: CleriaCore uses your own copy of Ys Origin.
+
+| System | Package | What to do |
+|---|---|---|
+| 🪟 **Windows 10/11** (64-bit) | `CleriaCore-<version>-windows-x64.zip` | Unzip anywhere and run `cleria-view.exe`. Windows may warn about an unrecognized app the first time: click **More info**, then **Run anyway**. |
+| 🐧 **Linux and Steam Deck** (x86-64) | `CleriaCore-<version>-linux-x64.tar.gz` | Extract it and run `./cleria-view`. Works on any distribution from 2022 on. On the Steam Deck, add it to Steam as a non-Steam game to play in Game Mode. |
+| 🍎 **macOS 11 or later** (Apple Silicon) | `CleriaCore-<version>-macos-arm64.zip` | Unzip and drag **CleriaCore** to Applications. The first time, macOS blocks it: open **System Settings > Privacy & Security** and click **Open Anyway**. |
+
+Each package has a `FIRST-RUN.txt` with these steps in more detail. If you'd rather build it yourself, see
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+### ▶️ First run
 
 1. **Own Ys Origin on Steam** and have it installed. CleriaCore only reads it, never changes it.
-2. **Build CleriaCore** by following [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
-3. **Start `cleria-view`.** The first time, it shows the Ys Origin installs it found in your Steam
+2. **Start CleriaCore.** The first time, it shows the Ys Origin installs it found in your Steam
    libraries. Pick yours (or browse to the folder) and it unpacks the game data once, in about 20 seconds.
-4. **Play.** You land on the title screen. Press **F1** at any time for the settings and mods.
+3. **Play.** You land on the title screen. Press **F1** at any time for the settings and mods.
 
 Your settings, saves and mods live in `Saved Games\CleriaCore` on Windows, `~/.config/CleriaCore` on Linux
 and `~/Library/Application Support/CleriaCore` on macOS. Your original Ys Origin saves are left alone.
@@ -89,10 +103,18 @@ press, a hold, always or never.
 
 ## 🧩 Mods
 
-- **Install**: double-click a `.cleriamod` file, or use **F1 > Mods > Install a mod file...**. Restart
-  CleriaCore to load it.
+<p align="center"><img src="docs/images/mods.jpg" alt="F1 > Mods > Get mods, the list of mods to install with one click" width="720"></p>
+
+- **Get mods**: press **Mods** on the launcher (or **F1 > Mods**), then **Get mods**. Pick a mod and it is
+  downloaded, installed and turned on; restart CleriaCore to play with it. Achievements, New Game+, a solo
+  randomizer, Archipelago and more are a click away, on Windows, Linux and macOS alike.
+- **Updates**: CleriaCore checks your mods for new versions when you open the Mods tab. A mod with an update
+  shows its new version in gold; **Update** takes it, keeping your settings and the mod on or off as it was.
+- **Install a file**: double-click a `.cleriamod` file, drop it on the CleriaCore window, or use
+  **F1 > Mods > Install a mod file...**.
 - **Manage**: **F1 > Mods** lists your mods. Turn each on or off, move it up or down (lower in the list wins
-  when two mods change the same thing), and open its page for its own settings.
+  when two mods change the same thing), open its page for its own settings, or remove it (it goes to the
+  Recycle Bin or the Trash).
 - **Make your own**: [samples/mods/README.md](samples/mods/README.md) is the guide, with four sample mods
   from a simple reskin to the full Archipelago client.
 
