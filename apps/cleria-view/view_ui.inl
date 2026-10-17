@@ -224,11 +224,12 @@ inline void list_end(List& L) {
     }
 }
 
-// A heading on the page: italic, with a gold rule to the row's end.
-inline void section(List& L, const char* title) {
+// A heading on the page: italic, with a gold rule to the row's end. `col`: kSection on a dark panel
+// (the setup screen), where the page's ink would not show.
+inline void section(List& L, const char* title, ImU32 col = kInk) {
     L.y += (L.n > 0 ? 12.0f : 0.0f) * S;
     const float px = 20.0f * S, y = L.org.y + L.y - L.scroll;
-    text(L.dl, F.serif_italic, px, {L.org.x + 4.0f * S, y}, kInk, title);
+    text(L.dl, F.serif_italic, px, {L.org.x + 4.0f * S, y}, col, title);
     const float x0 = L.org.x + 14.0f * S + text_size(F.serif_italic, px, title).x, x1 = L.org.x + L.size.x - 14.0f * S;
     if (x1 > x0) {
         L.dl->AddLine({x0, y + px * 0.62f}, {x1, y + px * 0.62f}, kRule, 1.2f * S);
