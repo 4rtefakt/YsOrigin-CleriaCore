@@ -165,8 +165,11 @@
                         mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
                         mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
                         const int dmg = lua_part_damage(enemy_incoming_damage(a, atk_cls, vd, mods, [&](float pct) { return float(rng_pct(rng)) < pct; }), a, vd.def, atk_cls);   // the shell's Cheats, the Lua mods' filter
-                        if (dmg > 0) boss3->add_part_damage(pi, float(dmg));   // [not modelled] the element bonus on HP
-                        part_hit_feedback(bp.pos, true, dmg, atk_cls);
+                        // +0x138 = 0 on every part (FUN_005a1a10 takes it from the ctor's {2, i, 0.75, 0, ..}, 0x5201f7):
+                        // the element bonus on the part's HP, the elemental effect and the white number on each hit.
+                        const int dmg_hp = part_element(bp.pos, false, dmg, atk_cls);
+                        if (dmg > 0) boss3->add_part_damage(pi, float(dmg), float(dmg_hp));
+                        part_hit_feedback(bp.pos, false, dmg, atk_cls);
                         if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
                         if (std::getenv("CLERIA_DMG"))
                             std::printf("  hit gelaldy part %d (DEF %.0f): %d dmg, part HP %.0f body %.0f\n",

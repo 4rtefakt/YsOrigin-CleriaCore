@@ -102,7 +102,8 @@ auto chain_part_hit = [&](int id, float power) {
     case 2: { const Boss02Part& bp = boss2->object(pi).part; dmg = damage(bp.def, bp.resist);
               if (dmg > 0) boss2->add_part_damage(pi, float(dmg)); part_hit_feedback(bp.pos, true, dmg, cls); break; }
     case 3: { const Boss03Part& bp = boss3->part(pi); dmg = damage(bp.def, bp.resist);
-              if (dmg > 0) boss3->add_part_damage(pi, float(dmg)); part_hit_feedback(bp.pos, true, dmg, cls); break; }
+              const int dmg_hp = part_element(bp.pos, false, dmg, cls);   // +0x138 = 0 (view_player_hit.inl)
+              if (dmg > 0) boss3->add_part_damage(pi, float(dmg), float(dmg_hp)); part_hit_feedback(bp.pos, false, dmg, cls); break; }
     case 4: { const Boss04Part& bp = boss4->part(pi); dmg = damage(bp.def, bp.resist);
               const int dmg_hp = part_element(bp.centre, bp.broken, dmg, cls);
               if (dmg > 0) boss4->add_part_damage(pi, float(dmg), float(dmg_hp)); part_hit_feedback(bp.centre, bp.broken, dmg, cls); break; }
