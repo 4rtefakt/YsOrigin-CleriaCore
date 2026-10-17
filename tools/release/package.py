@@ -97,10 +97,12 @@ def windows(a):
     return out
 
 
-def ldd(path):
-    """The resolved libraries a Linux ELF file loads: {soname: path}."""
+def ldd(path, dirs=()):
+    """The resolved libraries a Linux ELF file loads: {soname: path}. `dirs` are searched first, as the
+    bundled lib/ is once the rpaths are set (a library from the build tree may carry no rpath of its own)."""
     libs = {}
-    for line in subprocess.check_output(["ldd", path], text=True).splitlines():
+    env = dict(os.environ, LD_LIBRARY_PATH=os.pathsep.join([*dirs, os.environ.get("LD_LIBRARY_PATH", "")]))
+    for line in subprocess.check_output(["ldd", path], text=True, env=env).splitlines():
         parts = line.split()
         if len(parts) >= 3 and parts[1] == "=>":
             if parts[2] == "not":
@@ -122,7 +124,7 @@ def linux(a):
     mine = (os.path.realpath(a.build) + os.sep, os.path.realpath(TP) + os.sep)
     todo, bundled = list(exes), {}
     while todo:
-        for soname, path in ldd(todo.pop()).items():
+        for soname, path in ldd(todo.pop(), sorted({os.path.dirname(p) for p in bundled.values()})).items():
             if path.startswith(mine) and soname not in bundled:
                 bundled[soname] = path
                 dst = os.path.join(lib, soname)
