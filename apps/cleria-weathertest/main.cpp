@@ -481,6 +481,20 @@ int main(int argc, char** argv) {
         for (auto& o : wt.objects()) o->sp.life = 1.0f;
         wt.step(e); wt.sweep();
         check(wt.live_sparks() == 0 && wt.objects().empty(), "sparks: the sweep returns the live count");
+        // FUN_00589390, the wall clank's two: 3 draws each, the velocity a unit vector near `dir` times 0.06..0.205.
+        Weather wc;
+        Shared r4{{9u, 8u, 7u, 6u}};
+        wc.rng = [&] { return r4.next(); };
+        wc.clank_sparks({1.0f, 2.0f, 3.0f}, {0.0f, 0.0f, -1.0f}, 0.2617994f, 0.06f, 0.205f, 0.11f);
+        bool cok = r4.calls == 6 && wc.objects().size() == 2 && wc.live_sparks() == 2;
+        for (std::size_t k = 0; cok && k < 2; ++k) {
+            const Spark& s = wc.objects()[k]->sp;
+            const Vec3 v0{s.vel.x, s.vel.y + 10.0f * 0.0075f, s.vel.z};      // undo the pre-roll's gravity
+            const float sp = std::sqrt(v0.x * v0.x + v0.y * v0.y + v0.z * v0.z);
+            cok = s.delay == k && s.life >= 35.0f && s.life <= 65.0f && sp >= 0.06f - 1e-5f && sp <= 0.205f + 1e-5f &&
+                  -v0.z / sp > 0.96f && std::fabs(s.half - 0.044f) < 1e-6f;   // within ~15 deg of -z
+        }
+        check(cok, "clank sparks: 2, 6 draws, speed 0.06..0.205 within 15 deg of the reflected direction");
     }
 
     {   // FUN_0058a5f0 / FUN_0058a210 / FUN_0058a900 / FUN_00589f60, the blood splats (GOXX_PARTICLES.md §2.4, §3.3-§3.5).

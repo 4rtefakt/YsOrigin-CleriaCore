@@ -1559,7 +1559,7 @@ title_again:
     int atk_window = 0;                  // ticks left in the active hitbox
     // GenerateLocus sword sweeps (src/cleria/locus.hpp): the player's live GoLocusSwords, in pool
     // order, with the damage class their record took at spawn (+0x109 = FUN_0046d5e0()).
-    struct PlayerLocus { LocusSword sword; int cls = 3; int tex = 0x10; };   // tex: the trail's image handle (+0x134)
+    struct PlayerLocus { LocusSword sword; int cls = 3; int tex = 0x10; bool clanked = false; };   // tex: the trail's image handle (+0x134); clanked: +0x16c (the bounce, once)
     std::vector<PlayerLocus> loci;
     Sl2Set sl2set;
     if (!sl2set.load(asset_root)) std::printf("effects: EFFECT/SWORD*.SL2 missing — sword sweeps disabled\n");
