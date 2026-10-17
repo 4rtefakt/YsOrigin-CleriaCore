@@ -153,13 +153,13 @@ static fs::path first_run_setup(Gpu& g) {
             ui::info(L, "Status", buf, ui::kWarn);
             if (ui::button(L, "Cancel", "Stop unpacking. Nothing in your Ys Origin install is touched.")) s.task.cancel();
         } else {
-            ui::section(L, "Found in your Steam libraries");
+            ui::section(L, "Found in your Steam libraries", ui::kSection);
             if (s.found.empty())
                 ui::info(L, "", "No Ys Origin install was found", ui::kMuted);
             for (const gamedata::Validation& v : s.found)
                 if (ui::button(L, ("Use  " + v.root.string()).c_str(), "Unpack the game data from this install."))
                     s.start(v.root);
-            ui::section(L, "Somewhere else");
+            ui::section(L, "Somewhere else", ui::kSection);
             if (ui::button(L, "Locate Ys Origin...", "Pick your Ys Origin install folder in a file dialog."))
                 SDL_ShowOpenFolderDialog([](void* u, const char* const* list, int) {
                     auto* self = static_cast<Setup*>(u);

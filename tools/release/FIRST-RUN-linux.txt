@@ -1,0 +1,44 @@
+CleriaCore {version} for Linux and the Steam Deck
+=================================================
+
+Welcome! CleriaCore plays your own copy of Ys Origin on a modern engine, natively on Linux. It contains
+none of the game's files: you need Ys Origin installed from Steam.
+
+Before you start: install Ys Origin in Steam
+--------------------------------------------
+Ys Origin is a Windows game, so Steam on Linux installs it through Proton. If Steam does not offer to
+install it, open the game's Properties > Compatibility and tick "Force the use of a specific Steam Play
+compatibility tool". You never have to run it through Proton: CleriaCore only needs the files.
+
+First run
+---------
+1. Extract this archive somewhere in your home folder, such as ~/Games/CleriaCore:
+       tar -xzf CleriaCore-{version}-linux-x64.tar.gz -C ~/Games
+2. Run ./cleria-view in that folder (double-click it in your file manager, or start it from a terminal).
+3. CleriaCore lists the Ys Origin installs it found in your Steam libraries (native and Flatpak Steam, and
+   SD cards). Pick yours, or browse to the folder. It unpacks the game data once, in about 20 seconds.
+   Your Ys Origin install is only read, never changed.
+4. You land on the title screen. Press F1 at any time for the settings and the mods.
+
+On the Steam Deck
+-----------------
+1. Switch to Desktop Mode, download this archive and extract it (for example into ~/Applications).
+2. Run cleria-view once there to pick the game and let it unpack.
+3. In Steam, choose Games > "Add a Non-Steam Game to My Library...", browse to cleria-view and add it.
+4. Back in Game Mode, CleriaCore is in your library under Non-Steam. The Deck's controls work as a gamepad.
+
+Good to know
+------------
+- Your settings, saves and mods live in ~/.config/CleriaCore, the unpacked data in
+  ~/.local/share/CleriaCore. Your original Ys Origin saves are left alone.
+- Mods: open Mods on the launcher (or F1 > Mods) and press "Get mods". Double-clicking a .cleriamod file
+  works after you have started CleriaCore once from this folder (it registers itself for them).
+- Needs Vulkan graphics drivers (Mesa on AMD and Intel, the proprietary driver on NVIDIA) and, for online
+  mods such as Archipelago, OpenSSL 3 (installed on any recent distribution).
+- To update, extract the new version over this folder. To uninstall, delete it.
+
+Something wrong? Open an issue and say what you expected to see:
+https://github.com/4rtefakt/YsOrigin-CleriaCore/issues
+
+CleriaCore is a fan project, not made, endorsed or supported by Nihon Falcom or XSEED Games.
+Third-party licenses are in the licenses folder.

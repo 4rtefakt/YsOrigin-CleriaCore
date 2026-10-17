@@ -433,6 +433,14 @@ if(MSVC)
   target_link_options(cleria-view PRIVATE /ENTRY:mainCRTStartup)
 endif()
 target_link_libraries(cleria-view PRIVATE cleria cleria-audio cleria-movie imgui wgpu_native sdl3)
+# Player packages (release.yml): no fallback to the development checkout's assets and res/.
+option(CLERIA_RELEASE "Build for a player package" OFF)
+if(CLERIA_RELEASE)
+  target_compile_definitions(cleria-view PRIVATE CLERIA_RELEASE)
+endif()
+# The version on the title menu (release.yml passes the tag's).
+set(CLERIA_VERSION "0.1 (dev)" CACHE STRING "Version shown by cleria-view")
+target_compile_definitions(cleria-view PRIVATE "CLERIA_VERSION=\"${CLERIA_VERSION}\"")
 
 # Copy the runtime DLLs next to the viewer so it runs from the build dir.
 if(WIN32)

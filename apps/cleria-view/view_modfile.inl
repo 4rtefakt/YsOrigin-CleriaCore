@@ -14,7 +14,9 @@
 #include "cleria/modinstall.hpp"
 #ifdef _WIN32
 #include <commdlg.h>   // GetOpenFileNameW: "Install a mod file..."
+#include <io.h>        // _get_osfhandle: Restart now hands the logs on
 #else
+#include <cerrno>       // Restart now's execv
 #include <fcntl.h>      // the single-instance lock file
 #include <sys/file.h>   // flock
 #include <unistd.h>
@@ -311,6 +313,108 @@ static bool modfile_dropped(const char* path) {
     f.notice_until = SDL_GetTicks() + 12000;
     std::printf("[modfile] dropped %s\n", modfile_u8(p).c_str());
     return true;
+}
+
+// ---- Restart now ------------------------------------------------------------------------------------------
+// The Mods tab's "Restart CleriaCore now" (when the mods set differs from the loaded one): a quit as the window's
+// close button makes it, then main() starts this exe again with the arguments it kept (modfile_keep_args: the
+// ones left after modfile_take_args, so a .cleriamod given at the first start is not installed twice). The
+// single-instance lock is let go first, so the new process is the only CleriaCore on the mods folder.
+static std::vector<std::string> g_relaunch_args;   // argv[1..]
+static bool g_relaunch = false;
+
+static void modfile_keep_args(int argc, char** argv) {
+    g_relaunch_args.assign(argv + 1, argv + argc);
+}
+
+static void modfile_request_restart() {
+    if (std::getenv("CLERIA_DRIVE")) {   // a test never starts another process
+        std::printf("[modfile] restart: would start %s again (%zu argument(s))\n", modfile_u8(modfile_exe()).c_str(),
+                    g_relaunch_args.size());
+        return;
+    }
+    g_relaunch = true;
+    SDL_Event q{};
+    q.type = SDL_EVENT_QUIT;
+    SDL_PushEvent(&q);
+}
+
+// main(), once the window is gone: the new process, when asked for.
+static void modfile_relaunch() {
+    if (!g_relaunch) return;
+    const fs::path exe = modfile_exe();
+    if (exe.empty()) return;
+    ModFile& f = g_modfile;
+#ifdef _WIN32
+    if (f.instance) { CloseHandle(f.instance); f.instance = nullptr; }
+    auto quote = [](const std::wstring& a) {   // CommandLineToArgvW's rules
+        if (!a.empty() && a.find_first_of(L" \t\"") == std::wstring::npos) return a;
+        std::wstring q = L"\"";
+        std::size_t bs = 0;
+        for (wchar_t c : a) {
+            if (c == L'\\') { ++bs; continue; }
+            q.append(c == L'"' ? bs * 2 + 1 : bs, L'\\');
+            bs = 0;
+            q += c;
+        }
+        q.append(bs * 2, L'\\');
+        return q + L"\"";
+    };
+    std::wstring cmd = quote(exe.wstring());
+    for (const std::string& a : g_relaunch_args) {
+        const std::u8string u(a.begin(), a.end());
+        cmd += L" " + quote(fs::path(u).wstring());
+    }
+    // The new process writes its logs where this one did (a terminal, a pipe, a file): only stdout and stderr
+    // are inherited (PROC_THREAD_ATTRIBUTE_HANDLE_LIST), and only when there are any (a start from Explorer has none).
+    STARTUPINFOEXW si{};
+    si.StartupInfo.cb = sizeof si;
+    HANDLE std2[2] = {HANDLE(_get_osfhandle(_fileno(stdout))), HANDLE(_get_osfhandle(_fileno(stderr)))};
+    HANDLE pass[2];
+    DWORD n = 0;
+    for (HANDLE h : std2)
+        if (h && h != INVALID_HANDLE_VALUE && (n == 0 || pass[0] != h) &&
+            SetHandleInformation(h, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT))
+            pass[n++] = h;
+    std::vector<char> attrs;
+    if (n) {
+        SIZE_T sz = 0;
+        InitializeProcThreadAttributeList(nullptr, 1, 0, &sz);
+        attrs.resize(sz);
+        si.lpAttributeList = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attrs.data());
+        if (!InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, &sz) ||
+            !UpdateProcThreadAttribute(si.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, pass, n * sizeof(HANDLE),
+                                       nullptr, nullptr)) {
+            si.lpAttributeList = nullptr;
+            n = 0;
+        } else {
+            si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+            si.StartupInfo.hStdInput = nullptr;
+            si.StartupInfo.hStdOutput = std2[0];
+            si.StartupInfo.hStdError = std2[1];
+        }
+    }
+    PROCESS_INFORMATION pi{};
+    std::fflush(nullptr);
+    const BOOL started = CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, n ? TRUE : FALSE,
+                                        n ? EXTENDED_STARTUPINFO_PRESENT : 0, nullptr, nullptr, &si.StartupInfo, &pi);
+    if (si.lpAttributeList) DeleteProcThreadAttributeList(si.lpAttributeList);
+    if (started) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    } else {
+        std::fprintf(stderr, "[modfile] restart failed (%lu)\n", GetLastError());
+    }
+#else
+    if (f.instance_fd >= 0) { ::close(f.instance_fd); f.instance_fd = -1; }
+    const std::string path = modfile_u8(exe);
+    std::vector<char*> av{const_cast<char*>(path.c_str())};
+    for (std::string& a : g_relaunch_args) av.push_back(a.data());
+    av.push_back(nullptr);
+    std::fflush(nullptr);
+    ::execv(path.c_str(), av.data());
+    std::fprintf(stderr, "[modfile] restart failed: %s\n", std::strerror(errno));
+#endif
 }
 
 // The last install's (or update's, or removal's) result, at the top of the Mods list and of Get mods.

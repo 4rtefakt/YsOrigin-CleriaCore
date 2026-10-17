@@ -1,0 +1,31 @@
+CleriaCore {version} for Windows
+================================
+
+Welcome! CleriaCore plays your own copy of Ys Origin on a modern engine. It contains none of the game's
+files: you need Ys Origin installed from Steam.
+
+First run
+---------
+1. Unzip this folder somewhere you can write to, such as Documents\CleriaCore or D:\Games\CleriaCore
+   (not Program Files).
+2. Double-click cleria-view.exe.
+   Windows may say "Windows protected your PC" because CleriaCore is not signed yet: click "More info",
+   then "Run anyway".
+3. CleriaCore lists the Ys Origin installs it found in your Steam libraries. Pick yours, or browse to the
+   folder that holds yso_win.exe. It unpacks the game data once, in about 20 seconds. Your Ys Origin
+   install is only read, never changed.
+4. You land on the title screen. Press F1 at any time for the settings and the mods.
+
+Good to know
+------------
+- Your settings, saves and mods live in Saved Games\CleriaCore. Your original Ys Origin saves are left alone.
+- Mods: open Mods on the launcher (or F1 > Mods) and press "Get mods", or double-click a .cleriamod file.
+- To update, unzip the new version over this folder (or into a new one). Your saves are not in it.
+- To uninstall, delete this folder. Delete Saved Games\CleriaCore too if you want your saves gone.
+- CleriaCore needs a graphics card with Direct3D 12 or Vulkan (any from the last ten years).
+
+Something wrong? Open an issue and say what you expected to see:
+https://github.com/4rtefakt/YsOrigin-CleriaCore/issues
+
+CleriaCore is a fan project, not made, endorsed or supported by Nihon Falcom or XSEED Games.
+Third-party licenses are in the licenses folder.

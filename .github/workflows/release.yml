@@ -1,0 +1,125 @@
+# Player packages for a version tag (v0.1.0 ...): Windows zip, Linux tarball, macOS .app zip, each built
+# like build.yml and packaged by tools/release/package.py, then attached to a DRAFT GitHub release that a
+# maintainer reviews and publishes by hand. No game data is ever built in or uploaded: the packages unpack
+# the player's own Ys Origin install on the first run.
+#   gh workflow run release.yml --ref <branch> -f version=0.1.0-test    (packages only, no release)
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  # A pull request that changes the packaging builds the packages too (as dev-<commit>), no release.
+  pull_request:
+    paths: ['.github/workflows/release.yml', 'tools/release/**', 'tools/macos_bundle.py']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version for the package names (no release is made)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+          - name: linux-x64
+            os: ubuntu-22.04   # glibc 2.35: runs on the Steam Deck and any distribution from 2022 on
+          - name: macos-arm64
+            os: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        shell: bash
+        run: |
+          v="${{ inputs.version }}"
+          [ -n "$v" ] || [ "$GITHUB_REF_TYPE" != tag ] || v="${GITHUB_REF_NAME#v}"
+          [ -n "$v" ] || v="dev-${GITHUB_SHA::7}"
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config patchelf g++-12 ffmpeg \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libssl-dev
+          echo "CC=gcc-12" >> "$GITHUB_ENV"
+          echo "CXX=g++-12" >> "$GITHUB_ENV"
+
+      - name: macOS packages
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja pkgconf ffmpeg curl
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix curl)" >> "$GITHUB_ENV"
+
+      - name: MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Fetch dependencies
+        shell: bash
+        run: python3 tools/fetch_deps.py || python tools/fetch_deps.py
+
+      # A minimal shared FFmpeg (AVI + MPEG-4 only) that ships in the package, for the demo movies.
+      - name: FFmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          tools/release/build_ffmpeg.sh third_party/ffmpeg
+          echo "PKG_CONFIG_PATH=$PWD/third_party/ffmpeg/lib/pkgconfig" >> "$GITHUB_ENV"
+
+      - name: Configure
+        shell: bash
+        run: |
+          opts=""
+          [ "$RUNNER_OS" != Windows ] && opts="-DCLERIA_FFMPEG=ON -DCLERIA_CURL=ON"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCLERIA_RELEASE=ON "-DCLERIA_VERSION=$VERSION" $opts "-DCLERIA_TEST_ASSETS=$GITHUB_WORKSPACE/no-assets"
+
+      - name: Build
+        run: cmake --build build --parallel --target cleria-view cleria-gamedata cleria-movietest
+
+      - name: Package
+        shell: bash
+        run: python3 tools/release/package.py --build build --out dist --version "$VERSION" || python tools/release/package.py --build build --out dist --version "$VERSION"
+
+      # The bundled FFmpeg build decodes an XviD-tagged MPEG-4 AVI, as the retail movies are.
+      - name: Movie decoder (bundled FFmpeg)
+        if: runner.os == 'Linux'
+        run: |
+          ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc=size=320x160:rate=60 -t 2 -c:v mpeg4 -vtag XVID -an test_movie.avi
+          ./build/cleria-movietest --file test_movie.avi movie_frame.png
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CleriaCore-${{ matrix.name }}
+          path: dist/CleriaCore-*
+          if-no-files-found: error
+
+  release:
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/CleriaCore-* --repo "$GITHUB_REPOSITORY" --draft \
+            --title "CleriaCore ${GITHUB_REF_NAME#v}" --notes "Release notes to be written before publishing."

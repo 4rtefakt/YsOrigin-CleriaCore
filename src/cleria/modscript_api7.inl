@@ -1177,9 +1177,9 @@ namespace {
 // ---- cleria.net.udp / tcp / http (src/cleria/net/socket) --------------------------------------------------------
 const char* const kUdpMt = "cleria.net.udp";
 const char* const kTcpMt = "cleria.net.tcp";
-constexpr int kRawSockets = 16;                          // [H] udp + tcp sockets alive at once per mod
-struct UdpUd { net::UdpSocket* s = nullptr; Mod* mod = nullptr; };
-struct TcpUd { net::TcpSocket* s = nullptr; Mod* mod = nullptr; };
+constexpr int kRawSockets = 16;                          // [H] udp + tcp sockets open at once per mod (a closed one does not count)
+struct UdpUd { net::UdpSocket* s = nullptr; Mod* mod = nullptr; bool counted = false; };
+struct TcpUd { net::TcpSocket* s = nullptr; Mod* mod = nullptr; bool counted = false; };
 
 template <class Ud, class Sock>
 Ud* new_sock(lua_State* L, const char* mt, Sock* adopt = nullptr) {
@@ -1192,28 +1192,45 @@ Ud* new_sock(lua_State* L, const char* mt, Sock* adopt = nullptr) {
     new (u) Ud{};
     u->s = adopt ? adopt : new Sock();
     u->mod = &m;
+    u->counted = true;
     ++m.raw_sockets_;
     luaL_setmetatable(L, mt);
     return u;
 }
 template <class Ud>
+void uncount(Ud* u) {                                    // closed: its slot is free again
+    if (u->counted && u->mod) --u->mod->raw_sockets_;
+    u->counted = false;
+}
+template <class Ud>
+void recount(lua_State* L, Ud* u) {                      // a closed socket opened again takes a slot back
+    if (u->counted) return;
+    if (u->mod->raw_sockets_ >= kRawSockets) luaL_error(L, "a mod may keep at most %d sockets", kRawSockets);
+    ++u->mod->raw_sockets_;
+    u->counted = true;
+}
+template <class Ud>
 int sock_gc(lua_State* L, const char* mt) {
     Ud* u = static_cast<Ud*>(luaL_checkudata(L, 1, mt));
-    if (u->s && u->mod) --u->mod->raw_sockets_;
+    if (u->s) uncount(u);
     delete u->s;
     u->s = nullptr;
     return 0;
 }
-net::UdpSocket& udp_check(lua_State* L) {
+UdpUd* udp_ud(lua_State* L) {
     UdpUd* u = static_cast<UdpUd*>(luaL_checkudata(L, 1, kUdpMt));
     if (!u->s) luaL_error(L, "the socket was closed for good");
-    return *u->s;
+    return u;
 }
-net::TcpSocket& tcp_check(lua_State* L) {
+TcpUd* tcp_ud(lua_State* L) {
     TcpUd* u = static_cast<TcpUd*>(luaL_checkudata(L, 1, kTcpMt));
     if (!u->s) luaL_error(L, "the socket was closed for good");
-    return *u->s;
+    return u;
 }
+net::UdpSocket& udp_check(lua_State* L) { return *udp_ud(L)->s; }
+net::TcpSocket& tcp_check(lua_State* L) { return *tcp_ud(L)->s; }
+net::UdpSocket& udp_open(lua_State* L) { UdpUd* u = udp_ud(L); recount(L, u); return *u->s; }   // a call that opens it
+net::TcpSocket& tcp_open(lua_State* L) { TcpUd* u = tcp_ud(L); recount(L, u); return *u->s; }
 int push_fail(lua_State* L, const std::string& err) { lua_pushboolean(L, 0); lua_pushstring(L, err.c_str()); return 2; }
 std::string bytes_arg(lua_State* L, int i) { std::size_t n = 0; const char* p = luaL_checklstring(L, i, &n); return std::string(p, n); }
 
@@ -1221,8 +1238,9 @@ int l_udp_new(lua_State* L) { new_sock<UdpUd, net::UdpSocket>(L, kUdpMt); return
 int l_udp_gc(lua_State* L) { return sock_gc<UdpUd>(L, kUdpMt); }
 int l_udp_bind(lua_State* L) {                           // ([port [, any]]) -> the port, or false, why
     std::string err;
-    net::UdpSocket& s = udp_check(L);
+    udp_check(L);
     if (!M(L).limits().network) return push_fail(L, "no network here");
+    net::UdpSocket& s = udp_open(L);
     if (!s.bind(int(luaL_optinteger(L, 2, 0)), lua_isnoneornil(L, 3) || lua_toboolean(L, 3), &err)) return push_fail(L, err);
     lua_pushinteger(L, s.port());
     return 1;
@@ -1230,7 +1248,7 @@ int l_udp_bind(lua_State* L) {                           // ([port [, any]]) -> 
 int l_udp_send(lua_State* L) {                           // (host, port, data) -> true, or false, why
     std::string err;
     if (!M(L).limits().network) return push_fail(L, "no network here");
-    if (!udp_check(L).send_to(str_arg(L, 2), int(luaL_checkinteger(L, 3)), bytes_arg(L, 4), &err)) return push_fail(L, err);
+    if (!udp_open(L).send_to(str_arg(L, 2), int(luaL_checkinteger(L, 3)), bytes_arg(L, 4), &err)) return push_fail(L, err);
     lua_pushboolean(L, 1);
     return 1;
 }
@@ -1247,7 +1265,7 @@ int l_udp_poll(lua_State* L) {                           // -> {{host =, port =,
     return 1;
 }
 int l_udp_port(lua_State* L) { lua_pushinteger(L, udp_check(L).port()); return 1; }
-int l_udp_close(lua_State* L) { udp_check(L).close(); return 0; }
+int l_udp_close(lua_State* L) { UdpUd* u = udp_ud(L); u->s->close(); uncount(u); return 0; }
 
 int l_tcp_new(lua_State* L) { new_sock<TcpUd, net::TcpSocket>(L, kTcpMt); return 1; }
 int l_tcp_gc(lua_State* L) { return sock_gc<TcpUd>(L, kTcpMt); }
@@ -1255,13 +1273,14 @@ int l_tcp_connect(lua_State* L) {                        // (host, port [, timeo
     const lua_Integer port = luaL_checkinteger(L, 3);
     if (port < 1 || port > 65535) return luaL_argerror(L, 3, "a port is 1..65535");
     if (!M(L).limits().network) return 0;
-    tcp_check(L).connect(str_arg(L, 2), int(port), int(std::clamp(luaL_optnumber(L, 4, 10.0), 1.0, 60.0) * 1000.0));
+    tcp_open(L).connect(str_arg(L, 2), int(port), int(std::clamp(luaL_optnumber(L, 4, 10.0), 1.0, 60.0) * 1000.0));
     return 0;
 }
 int l_tcp_listen(lua_State* L) {                         // ([port [, any]]) -> the port, or false, why
     std::string err;
-    net::TcpSocket& s = tcp_check(L);
+    tcp_check(L);
     if (!M(L).limits().network) return push_fail(L, "no network here");
+    net::TcpSocket& s = tcp_open(L);
     if (!s.listen(int(luaL_optinteger(L, 2, 0)), lua_isnoneornil(L, 3) || lua_toboolean(L, 3), &err)) return push_fail(L, err);
     lua_pushinteger(L, s.port());
     return 1;
@@ -1293,7 +1312,7 @@ int l_tcp_state(lua_State* L) {
     return 1;
 }
 int l_tcp_port(lua_State* L) { lua_pushinteger(L, tcp_check(L).port()); return 1; }
-int l_tcp_close(lua_State* L) { tcp_check(L).close(); return 0; }
+int l_tcp_close(lua_State* L) { TcpUd* u = tcp_ud(L); u->s->close(); uncount(u); return 0; }
 
 struct HttpJob {
     std::mutex mu;
