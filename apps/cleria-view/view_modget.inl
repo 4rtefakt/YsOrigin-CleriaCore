@@ -286,7 +286,7 @@ static bool modget_in_use(const mods::Mod& m) {
     return false;
 }
 
-static void modget_remove(ModsUi& u, const std::string& id) {
+static void modget_remove(ModsUi& u, const std::string id) {   // a copy: `id` may be a listed mod's, and the list is replaced
     const mods::Mod* m = modget_find(u, id);
     if (!m) return;
     const std::string name = m->label();
