@@ -1788,7 +1788,7 @@ CASES.update({
         env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
         drive="3:opt=InfiniteMP=1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=1.0;8:tier=10;"
               "9:flag=205,1;10:saveload;11:flag=116,1;12:flag=117,1;13:flag=118,1;14:flag=182,3;15:flag=183,3;"
-              "16:flag=184,3;17:bracelet=116;60:boss7;7800:quit",
+              "16:flag=184,3;17:bracelet=116;60:boss7;9000:quit",
         expect=["[boss07] Dalles: HP 2500 STR 255, parts DEF 255 pool 25000, options 1000",
                 "the fight starts at (0.00,4.00,0.00)", "target the core with the sword", "clip N_SHOOT_R (variant 0)",
                 "bullet kind 0x2 effect 409", "the swing hits part 0 (class 3)", "clip N_SHOOT_L (variant 0)",
@@ -1831,8 +1831,13 @@ CASES.update({
                 # the pool, the hit spark): at 1.25 the fight ended at t4830 without the capture; at 1.0 every beat is
                 # here — the dark barrier falls with both options (t3755), the capture comes with them revived
                 # (t4462; the other dimension t4671..5233), it falls twice more and the death is at t6651.
-                "barrier D up", "phase 2 (max HP 4250)", "target option", "option R destroyed",
-                "bullet kind 0x25 effect 54", "CamSlot 3", "barrier D broken (window 699)", "option L destroyed",
+                # Re-pinned 2026-10-17 (#174: the options boss07op and the wing boss07w are models of update kind 1,
+                # so they play their section 0 from the load and the hulls bound to their bones move with it). At
+                # 1.0 every beat is still here, later: option L goes first (t3532), the dark barrier falls with
+                # option R (t3754), the capture comes with the options revived (t4203; the other dimension
+                # t4412..4974), it falls twice more and the death is at t7821, so the run ends at t9000 (was 7800).
+                "barrier D up", "phase 2 (max HP 4250)", "target option", "option L destroyed",
+                "bullet kind 0x25 effect 54", "CamSlot 3", "barrier D broken (window 699)", "option R destroyed",
                 "target the core with the sword", "barrier D up", "option R revived (1000)", "option L revived (1000)",
                 "clip SIS_LAZER_START", "the capture circle at",
                 "the player is captured", "CamSlot 5", "every particle removed", "mode 0 -> 4", "clip KIAI_START",
