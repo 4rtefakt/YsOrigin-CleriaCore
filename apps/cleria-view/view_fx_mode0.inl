@@ -46,8 +46,9 @@
             if (!overlap(vol, body_shape(bp.hurt_centre, bp.hurt_radius, 0.0f, 0, 0.0f))) continue;
             if (boss3_banks[std::size_t(pi)].check_and_record(0u, p.hit.rehit)) continue;
             const int dmg = fx_part_damage(bp.def, bp.resist);
-            if (dmg > 0) boss3->add_part_damage(pi, float(dmg));   // [not modelled] the element bonus on HP
-            part_hit_feedback(bp.pos, true, dmg, cls_p);
+            const int dmg_hp = part_element(bp.pos, false, dmg, cls_p);   // +0x138 = 0 (view_player_hit.inl)
+            if (dmg > 0) boss3->add_part_damage(pi, float(dmg), float(dmg_hp));
+            part_hit_feedback(bp.pos, false, dmg, cls_p);
             if (std::getenv("CLERIA_DMG"))
                 std::printf("  fx %d hits gelaldy part %d (DEF %.0f): %d dmg, part HP %.0f body %.0f\n",
                             p.fx ? p.fx->id : -1, pi, bp.def, dmg, bp.hp, boss3->hp());
