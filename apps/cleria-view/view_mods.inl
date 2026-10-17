@@ -40,6 +40,17 @@ static void content_page(ui::List& L);   // Mods > Content additions (view_conte
 static std::string content_summary();    // its row's value (view_content.inl)
 static void modfile_rows(ui::List& L, ModsUi& u);                    // Install a mod file..., the association (view_modfile.inl)
 static void modfile_install_ui(ModsUi& u, const fs::path& file);     // CLERIA_MODS_UI install=<file>
+static void modfile_msg_row(ui::List& L);                            // the last install's result
+static void modfile_request_restart();                               // Restart now (view_modfile.inl)
+// Get mods, updates, Remove (view_modget.inl)
+static void modget_take(ModsUi& u);
+static void modget_rows(ui::List& L, ModsUi& u);
+static void modget_page(ui::List& L, ModsUi& u);
+static void modget_mod_rows(ui::List& L, const mods::Mod& m);
+static bool modget_website_row(ui::List& L, const mods::Mod& m);
+static void modget_remove_rows(ui::List& L, ModsUi& u, const mods::Mod& m);
+static bool modget_ui_op(ModsUi& u, const std::string& op, const std::string& id);
+static std::optional<std::string> modget_update_version(const std::string& id);
 
 static mods::Prefs mods_prefs_from_settings() {
     const auto& c = settings().s.cleria;
@@ -154,6 +165,12 @@ static void mods_ui_script(ModsUi& u) {
         if (eq == std::string::npos) continue;
         const std::string op = it.substr(0, eq), id = it.substr(eq + 1);
         if (op == "install") { modfile_install_ui(u, fs::path(id)); continue; }   // the tab's Install a mod file...
+        if (op == "drop") { modfile_dropped(id.c_str()); continue; }               // a file dropped on the window
+        if (op == "restart") {                                                      // Restart now, when the tab offers it
+            if (mods_pending(u)) modfile_request_restart();                         // (a drive run only prints)
+            continue;
+        }
+        if (modget_ui_op(u, op, id)) continue;                                      // get / check / update / remove
         int i = -1;
         for (int k = 0; k < int(u.list.size()); ++k)
             if (u.list[std::size_t(k)].m.id == id) i = k;
@@ -237,7 +254,7 @@ static bool mods_back(ui::List& L) {
 // "content" or a mod id (ui::Page::open_sub: CLERIA_SHELL_PAGE=Mods:<key>, the drive's shell=Mods:<key>).
 static bool mods_open_sub(const std::string& key) {
     ModsUi& u = g_mods_ui;
-    bool ok = key == "content";
+    bool ok = key == "content" || key == "get";
     for (const mods::Mod& m : u.list) ok |= !m.m.id.empty() && m.m.id == key;
     if (ok) u.next = key;
     else std::printf("[shell] Mods has no sub-page '%s'\n", key.c_str());
@@ -294,7 +311,14 @@ static void mods_row(ui::List& L, ModsUi& u, int i) {
     const std::string name = ui::upper(m.label().c_str());
     ui::text(L.dl, ui::F.cond, lpx, {x, cy - lpx * 0.55f}, ui::kLabel, name.c_str());
     x += ui::text_size(ui::F.cond, lpx, name.c_str()).x + 10.0f * S;
-    ui::text(L.dl, ui::F.body, 15.0f * S, {x, cy - 15.0f * S * 0.55f}, ui::kMuted, m.m.version.c_str());
+    {   // its version, its update ("1.0.0 › 1.1.0") or why it cannot load
+        const bool bad = m.state == mods::State::Error && !m.errors.empty();
+        const std::optional<std::string> up = modget_update_version(m.m.id);
+        const std::string note = bad ? m.errors.front() : up ? m.m.version + "  \xE2\x80\xBA  " + *up : m.m.version;
+        L.dl->PushClipRect({x, r.a.y}, {ax - 18.0f * S, r.b.y}, true);
+        ui::text(L.dl, ui::F.body, 15.0f * S, {x, cy - 15.0f * S * 0.55f}, bad ? ui::kWarn : up ? ui::kGold : ui::kMuted, note.c_str());
+        L.dl->PopClipRect();
+    }
     if (has_page) mods_gear(L.dl, {r.b.x - 100.0f * S, cy}, r.selected ? ui::kTabOn : ui::kMuted);
     // the state: a click on it toggles
     const char* v = m.state == mods::State::Error ? "Error" : m.stopped ? "Stopped" : m.enabled ? "On" : "Off";
@@ -331,6 +355,7 @@ static void mods_mod_page(ui::List& L, ModsUi& u) {
     if (i < 0) { u.next = ""; return; }              // gone (a rescan)
     mods::Mod& m = u.list[std::size_t(i)];
     if (ui::back_row(L, "Mods", m.label().c_str(), mods_desc(m).c_str())) u.next = "";
+    modget_mod_rows(L, m);
     const int n_pages = mods_page_count(u, m.m.id);
     for (ModsPage& p : u.pages) {
         if (p.mod_id != m.m.id) continue;
@@ -368,7 +393,7 @@ static void mods_mod_page(ui::List& L, ModsUi& u) {
     ui::section(L, "About");
     if (!m.m.version.empty()) ui::info(L, "Version", m.m.version.c_str());
     if (!m.m.author.empty()) ui::info(L, "Author", m.m.author.c_str());
-    if (!m.m.website.empty()) ui::info(L, "Website", m.m.website.c_str());
+    modget_website_row(L, m);
     ui::info(L, "Id", m.m.id.c_str());
     {
         const std::string src = m.source.filename().string() + (m.zip ? "" : "/");
@@ -380,6 +405,7 @@ static void mods_mod_page(ui::List& L, ModsUi& u) {
     if (!m.m.conflicts.empty()) ui::info(L, "Conflicts with", mods_deps(m.m.conflicts).c_str());
     for (const std::string& e : m.errors) ui::info(L, "Error", e.c_str(), ui::kWarn, e.c_str());
     for (const std::string& n : m.notes) ui::info(L, "Note", n.c_str(), ui::kMuted, n.c_str());
+    modget_remove_rows(L, u, m);
 }
 
 static void mods_page(ui::List& L) {
@@ -396,6 +422,8 @@ static void mods_page(ui::List& L) {
         content_page(L);
         return;
     }
+    if (u.on) modget_take(u);                         // downloads finished since the last frame
+    if (u.sub == "get") { modget_page(L, u); return; }   // Mods > Get mods (view_modget.inl)
     if (!u.sub.empty()) { mods_mod_page(L, u); return; }
     if (!u.on) {
         ui::section(L, "Mods");
@@ -409,9 +437,19 @@ static void mods_page(ui::List& L) {
             const bool pend = mods_pending(u);
             if (pend) s += "  \xE2\x80\xA2  restart to apply";
             ui::info(L, "Status", s.c_str(), pend ? ui::kWarn : ui::kGood);
+            if (pend && ui::button(L, "Restart CleriaCore now",
+                                   "Closes CleriaCore and starts it again with the mods as they are set here. In a game, "
+                                   "save first: progress since your last save is lost."))
+                modfile_request_restart();
         }
+        modfile_msg_row(L);
+        ui::section(L, "Add and update");
+        modget_rows(L, u);
         ui::section(L, "Installed mods");
-        if (u.list.empty()) ui::info(L, "None", "Put mods in the mods folder", ui::kMuted);
+        if (u.list.empty())
+            ui::paragraph(L, "No mods yet. Open Get mods above and pick one: it is downloaded, installed and turned on. "
+                             "You can also install a .cleriamod file you downloaded (Options, below). New mods load when "
+                             "CleriaCore restarts; press F1 in the game to come back here.", ui::kMuted);
         for (int i = 0; i < int(u.list.size()); ++i) mods_row(L, u, i);
     }
     ui::section(L, "Content");

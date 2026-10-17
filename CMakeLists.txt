@@ -225,7 +225,7 @@ target_link_libraries(cleria-wndtest PRIVATE cleria)
 # cleria-modstest — mod manifests, load order, dependency / conflict checks, zip mods and the vfs
 # resolution order (src/cleria/mods, src/cleria/vfs; build/shell_re/MODS.md). Writes only under %TEMP%.
 add_executable(cleria-modstest apps/cleria-modstest/main.cpp)
-target_link_libraries(cleria-modstest PRIVATE cleria miniz)
+target_link_libraries(cleria-modstest PRIVATE cleria cleria-net miniz)
 
 # Mod content (phase 2a, build/shell_re/CONTENT.md): the save sidecar, the event bus, content/*.ini.
 target_sources(cleria PRIVATE src/cleria/inidoc.cpp src/cleria/sidecar.cpp src/cleria/mod_events.cpp
@@ -443,6 +443,11 @@ if(MSVC)
   target_link_options(cleria-view PRIVATE /ENTRY:mainCRTStartup)
 endif()
 target_link_libraries(cleria-view PRIVATE cleria cleria-audio cleria-movie imgui wgpu_native sdl3)
+# Player packages (release.yml): no fallback to the development checkout's assets and res/.
+option(CLERIA_RELEASE "Build for a player package" OFF)
+if(CLERIA_RELEASE)
+  target_compile_definitions(cleria-view PRIVATE CLERIA_RELEASE)
+endif()
 
 # Copy the runtime DLLs next to the viewer so it runs from the build dir.
 if(WIN32)
@@ -510,6 +515,11 @@ add_test(NAME weathertest COMMAND cleria-weathertest "${CLERIA_TEST_ASSETS}" WOR
 # The SE voices (loop, the dup buffer pick, Se_Stop / Se_Volume, the scene entry's stop-all), no device.
 add_test(NAME audiotest COMMAND cleria-audiotest "${CLERIA_TEST_ASSETS}" --voices WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(audiotest PROPERTIES LABELS assets)
+# An untagged track (YSO_020, 3563136 samples) started 1 s before its end restarts from 0: the game starts every
+# stream with the track loop flag (src/cleria/audio.hpp).
+add_test(NAME audiotest_bgm_wrap COMMAND cleria-audiotest "${CLERIA_TEST_ASSETS}" --bgm demo6 3 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(audiotest_bgm_wrap PROPERTIES LABELS assets ENVIRONMENT "CLERIA_BGM_SEEK=3519000"
+                     PASS_REGULAR_EXPRESSION "looped 1 time")
 # The tests that read game data (they fail without an unpacked game). CI runs `ctest -LE assets`
 # (.github/workflows/build.yml); every other test passes with no asset root (measured 2026-10-08).
 set_tests_properties(worldtest enemytest asotest animtest ef2simtest bullettest invtest booktest bosstest
@@ -539,7 +549,7 @@ target_sources(cleria PRIVATE src/cleria/json.cpp)
 target_sources(cleria PRIVATE src/cleria/platform_math.cpp src/cleria/msvc_trigf.cpp src/cleria/msvc_trigd.cpp src/cleria/msvc_inv.cpp
                src/cleria/msvc_atan2.cpp src/cleria/msvc_pow.cpp src/cleria/msvc_powf.cpp src/cleria/msvc_hypotf.cpp
                src/cleria/msvc_exp_log.cpp)
-add_library(cleria-net STATIC src/cleria/net/websocket.cpp src/cleria/net/socket.cpp)
+add_library(cleria-net STATIC src/cleria/net/websocket.cpp src/cleria/net/socket.cpp src/cleria/modget.cpp)
 target_link_libraries(cleria-net PRIVATE miniz)   # inflates permessage-deflate messages
 if(WIN32)
 target_link_libraries(cleria-net PUBLIC cleria winhttp ws2_32 secur32)
