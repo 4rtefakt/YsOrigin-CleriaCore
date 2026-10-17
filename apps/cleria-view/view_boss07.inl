@@ -11,7 +11,7 @@
 // dropped. [approx] SE and SE2 are the same 2-D cue (the "load if needed" path has no counterpart).
 // [approx] the mini gauges (0x76c1cc / 0x76c1e4 / 0x76c1fc) are plain two-rect bars at their projected anchors and
 // their 255 timers are not counted down (DALLES_AB C11 / G4: the counter is the HUD's, not traced).
-// [approx] FUN_00462c40(cl 1) (DALLES_D23 §16.5) is run as "Boost ends"; its buff-timer half is not.
+// FUN_00462c40(cl 1) (DALLES_D23 §16.5): one buff-timer step (hudstate::tick_buffs, under the Fix too) and the Boost's end.
 // [not modelled] the re-skins (DALLES_AB §B.6.2 / §B.6.4: Boss07_00 / _01 ver2 / ver3, Boss07op01 — the view has no
 // per-object texture swap), the glare feedback pulse (the byte is carried, nothing reads it), the
 // children's +0x2a4 tint (DALLES_CD1 §3.3; the +0x2a0 hit flash is drawn: step_meshes), the wing's translucent draw flag (+0x294 &
@@ -246,7 +246,10 @@ auto boss7_apply = [&](const Boss07Output& out, MeshObj* bm) {
     }
     if (pw.iframes) player_iframes = std::max(player_iframes, int(*pw.iframes));   // P+0x734 = max(.., n)
     for (int sct : pw.sections) avm.set_section(sct, /*force*/true);   // FUN_00446620: ungated
-    if (pw.boost_tick && player.boosting) end_boost();     // FUN_00462c40(cl 1) with the gauge at 0 [approx]
+    if (pw.boost_tick) {                                   // FUN_00462c40(cl 1), the gauge at 0: the buffs step once, the Boost ends
+        if (hudstate::tick_buffs(inv)) (void)player_stats();
+        if (player.boosting) end_boost();
+    }
     if (out.move_to) meshes.move_to("boss07", out.move_to->target, out.move_to->radius, out.move_to->speed, false);
     if (out.skybox_alpha) meshes.alpha_current("skybox", *out.skybox_alpha);
     if (out.skin_body || out.skin_options)                 // [not modelled] the re-skin
