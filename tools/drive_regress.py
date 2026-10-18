@@ -2048,6 +2048,34 @@ CASES.update({
                 "[boss08] t15527 the kill (core hp", "motion boss08 30_OnBackWait", "flag 227 = 1",
                 "[content] boss_defeated S_7099 flag 227"],
         absent=["the floor moves: over to"]),
+    # "I can't hit Darm's hands without taking damage at max melee range" (2026-10-13). The sword's trail — the
+    # GoLocusSword of every combo swing — was never scanned against the bosses' GoXx parts: a swing reached a limb
+    # only with its body volume (r 0.5, 0.6 ahead), and Darm's resting leg FILLS its hit sphere (part 5, r 2.5 round
+    # Bone_LeftToe1-1: the hull's outer side is 2.3 from the centre at the player's height), so the first swing
+    # connected from no further than 0.5 .. 1.2 off the hull and its own lunge (0.85 a swing) ended in the Touch_Tail
+    # contact on the third. With the locus as an attacker of the part list (FUN_004faf20, type 0xb;
+    # view_player_parts.inl) the blade connects from 5.25 off the part's centre — 2.9 before the contact.
+    # Honest: Toal, Hard, level 50, tier 10, real damage. In the first rest (01_NormalWait, until t191) he is put on
+    # the tiles 5.0 from part 5's centre on its outer side (the hull 3.33 from his origin, 2.65 from his sphere),
+    # facing it, and presses Attack three times: three swings land, no touch, no damage taken.
+    "darm_blade_reach": dict(
+        room="S_70/S_7099/S_7099", char="3", env={"CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
+        drive="2:diff=3;6:level=50;8:tier=10;9:flag=205,1;10:saveload;11:flag=163,1;12:every=15,40,oktapf;"
+              "50:at3=9.93,0,6.75,-90;55:atk;66:atk;77:atk;120:pos;121:quit",
+        expect=["the fight starts, the body at (0.00,0.00,8.50)", "t50 at3=9.93,0,6.75,-90",
+                "t60 the swing hits part 5 (DEF 998, class 3): 1 dmg", "t70 the swing hits part 5",
+                "t83 the swing hits part 5", "hp 342 sub 0"],
+        absent=["-> touch_tail", "Chr_Damage player"], count={"the swing hits part 5": 3}),
+    # ... and the same rule on another boss: Toal's blade against Velagunder's stun part (part 1) from 4.0 in front
+    # of it on the arena floor — out of the body volume's reach (1.1). Two of the three swings land on it (the
+    # third's sweep passes the armoured part 2), and his body's collision entries do not hurt (none is lit).
+    "velagunder_blade_reach": dict(
+        room="S_10/S_1099/S_1099", char="3", env=dict(CLERIA_LEVEL="20", CLERIA_DMG="1", CLERIA_DRIVE_LOCKSTEP="1"),
+        drive="5:diff=3;10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 2200, 40))
+              + "2300:at=-0.33,26.3,0;2301:pos;2302:atk;2313:atk;2324:atk;2360:pos;2361:quit",
+        expect=["feet (-0.330, 2.000, 26.300)", "hit boss part 1 (DEF 54): 19 dmg, HP 875 stun 700",
+                "hit boss part 1 (DEF 54): 19 dmg, HP 875 stun 681"],
+        absent=["velagunder body entry"], count={"hit boss part 1": 2}),
     # Dalles's music (issue: "Dalles has music stopping or not launching"). The room's SCENELIST record has BGM 0 and
     # the retry branch of its root only names the track (op 0xa4 Scene_SetDefaultBgm 17, no Bgm_Play): the scene
     # entry's compare of the playing id with the pending one, AFTER the root's first burst, starts it [EXPORT
