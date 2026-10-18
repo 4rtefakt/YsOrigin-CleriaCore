@@ -1688,16 +1688,19 @@ CASES.update({
     # he falls with 13 of 20 alive and absorbs body 1 -> 521; EXP at t2616 (was t2808), flag 224 at t3114 (t3306).
     # Re-pinned 2026-10-17 (the wall clank's sparks and the boss parts' hit spark / elemental effect: their draws of
     # the shared xorshift): 19 summons, 15 alive when he falls; he absorbs body 1 -> 601. Same sections, the kill.
+    # Re-pinned 2026-10-18 (Pictimos's intro debris, FUN_00587010 in place: its draws of the shared xorshift): x20 from
+    # t2400 (was t2180, which now kills him in his first ZOROMEKA before any summon); 20 summons, 12 alive when he
+    # falls, he absorbs body 1 -> 481; EXP t3006, flag 224 t3504. Same sections, the guts, the kill.
     "pictimos_fight": dict(
         room="S_50/S_5099/S_5099",
         env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;10:move=0,1,200;"
-              "40:every=20,1000,ok;1030:every=40,4100,boss5;1038:every=40,4100,atk;2180:opt=DamageDealt=20;4100:quit",
+              "40:every=20,1000,ok;1030:every=40,4100,boss5;1038:every=40,4100,atk;2400:opt=DamageDealt=20;4100:quit",
         expect=["[boss05] Pictimos: body 4000, STR 220 lv 40", "sect RAKKATYUU", "sect TYAKUTI", "f156 1",
-                "sect ZOROMEKA", "sect DEAD", "body 1/4000 guts 1 waves 0 summons 15/19", "body 601/4000 guts 1",
+                "sect ZOROMEKA", "sect DEAD", "body 1/4000 guts 1 waves 0 summons 12/20", "body 481/4000 guts 1",
                 "EXP (lv 40)", "flag 224 = 1", "destroyed"],
-        # The 15 summons he takes back die in the fight: each one's handler burst (SE 11, effect 0x43, FUN_004ac470).
-        count={"death burst (SE 11, effect 0x43)": 15}),
+        # The 12 summons he takes back die in the fight: each one's handler burst (SE 11, effect 0x43, FUN_004ac470).
+        count={"death burst (SE 11, effect 0x43)": 12}),
     # ... and as Hugo: his shots' particles reach Pictimos's parts (part 1 takes the damage, the DEF-999 ones none).
     "pictimos_hugo": dict(
         room="S_50/S_5099/S_5099", char="2",
@@ -3739,9 +3742,12 @@ CASES.update({
     # ROUTE_F47 R7: Pictimos' second round, Hugo only. The first kill (224) starts Battle_Hugo_1's revive scene
     # (3160 ticks, Confirm only: the pilot would hold him off the scene's walk), Battle_Hugo_2 sets 156 again, the
     # second kill sets 224 again and AfterBattle_Hugo_2 runs. [found] the mods' boss_defeated fires for each round.
+    # Re-pinned 2026-10-18 (the intro debris' draws): DamageDealt 2.2 (round 1's flag 224 at t2456, the scene ends at
+    # t5630, round 2's 224 at t6642). At x2 the first kill lands at t2674 and the revive scene stalls until the next
+    # press series after a gap (released at t9070); x2.4 kills at t2276 and stalls too [found, not chased].
     "pictimos_hugo_round2": dict(
         room="S_50/S_5099/S_5099", char="2", env={"CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
-        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;10:move=0,1,200;"
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2.2;8:tier=10;10:move=0,1,200;"
               "40:every=20,1000,ok;1030:every=40,2600,boss5;1038:every=40,2600,atk;2600:every=20,5760,oktapf;5765:scripts;"
               "5766:dflags;5770:every=40,9000,boss5;5778:every=40,9000,atk;9000:every=20,9400,oktapf;9400:scripts;9401:quit",
         expect=["flag 224 = 1", "slot 0 released: 0/0", "t5765 scripts", "script Battle_Hugo_2 pc 35",

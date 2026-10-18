@@ -31,6 +31,8 @@ struct WorldPipes {
     WGPURenderPipeline fx_pipeline_pm{};   // EF2 render word 0x1000000: ONE / INVSRCALPHA
     WGPURenderPipeline char_pipeline{}; // alpha-blended character/enemy sprites
     WGPURenderPipeline char_pipeline_add{}; // additive variant, for glow overlays (Topic selection wash)
+    WGPURenderPipeline body_pre_pipe{};   // an actor body's depth pass (preset 0x24f51; draw_character)
+    WGPURenderPipeline body_pipe{};       // an actor body's colour pass (preset 0x24741: no Z write; draw_character)
     WGPURenderPipeline shadow_pipeline{}; // floor shadow decals (alpha-over, no depth write)
     WGPURenderPipeline glow_pipeline{};   // the light2 under-glow: the shadow's decal, added (state 0x20681)
     WGPURenderPipeline floor_quad_pipe{}; // an actor's image on a mirror floor (preset 0x21641: fs_char, no depth write, unculled)
@@ -1196,6 +1198,21 @@ static void build_pipeline(Gpu& g, WGPUTextureFormat color, std::uint32_t sample
     // moving it on screen; the slope term handles the angled floor under it.
     WGPURenderPipelineDescriptor cpd = pd; cpd.fragment = &cfs;  // room depth (Less+write)
     g.char_pipeline = wgpuDeviceCreateRenderPipeline(g.device, &cpd);
+
+    // An actor's body is two draws (FUN_00473540 queues both [EXPORT 00473540.c:95-115]):
+    //  - body_pre_pipe, FUN_00474290 on layer 6, preset 0x24f51: at the feet, colour x 0.75, alpha test 0x60,
+    //    Z write [EXPORT 00474290.c:52-113];
+    //  - body_pipe, FUN_004745a0 on layer 12, the actor's +0x294 | 0x200 = 0x24741: nudged toward the eye, alpha
+    //    test 1, Z test (LESSEQUAL, FUN_005f1870) and NO Z write, as bit 0x800 of +0x294 = 0x24541 is clear
+    //    [BYTES 0x459514, 0x4747e0..0x4747ea, 0x5ebb6e..0x5ebb8f]. Later blended draws are cut only by the first.
+    WGPUFragmentState pfs = cfs; pfs.entryPoint = sv("fs_char_pre");
+    WGPURenderPipelineDescriptor ppd = cpd; ppd.fragment = &pfs;
+    WGPUDepthStencilState pds = ds; pds.depthCompare = WGPUCompareFunction_LessEqual;
+    ppd.depthStencil = &pds;
+    g.body_pre_pipe = wgpuDeviceCreateRenderPipeline(g.device, &ppd);
+    WGPUDepthStencilState bds = pds; bds.depthWriteEnabled = WGPUOptionalBool_False;
+    WGPURenderPipelineDescriptor bpd = cpd; bpd.depthStencil = &bds;
+    g.body_pipe = wgpuDeviceCreateRenderPipeline(g.device, &bpd);
 
     // Additive variant (same fs_char) for glow overlays: the sprite ADDS its colour weighted by
     // alpha, so a cyan glow brightens a row toward teal without masking the baked label under it.

@@ -136,8 +136,7 @@ int main(int argc, char** argv) {
     // ---- a kill's death effects (FUN_00478510; item/PICKUPS.md §12 item 10, counted by a Python EF2SIM over 200
     // seeds): the draws at creation, and in all over the effect's life (the creation's included), which keep the
     // shared xorshift in step. An ordinary kill: 1 (FUN_00478510's entry) + 91 (the puff) + 57..128 (the spark).
-    // [not checked] z_yarare03 (0x43, the revivers' puff), whose turbulence varies the count: the note gives about
-    // 1860..1910, this sim 1906..1984 over these four states.
+    // z_yarare03 (0x43, the revivers' puff) is checked below: its turbulence varies the count.
     {
         struct Want { const char* file; int id; unsigned create, life; };
         const Want ws[] = {{"COMMON/M_ZAKOYARARE.EF2", 0x56, 1, 91},        // the puff
@@ -160,6 +159,32 @@ int main(int argc, char** argv) {
                               seed, (unsigned long long)rng.calls, (unsigned long long)c0, s);
                 check(ok && c0 == w.create && rng.calls == w.life && sys.particles().empty(), what);
             }
+        }
+    }
+
+    // ---- z_yarare03 (0x43): 1630 fixed draws + 3 per turbulence pass. Root em0 (1 at creation: the shadow phase) emits
+    // 4 em1 at its first step and 3 em2 at age 20; each em2 emits an em3 at its first step and at remaining 76, 72 .. 4
+    // (mode 3, period 4): 60 em3. Spawn draws: em1 shadow + delay (D 15) + roll jitter = 3, em2 / em3 shadow + delay
+    // (D 5) + 3 rotation jitters = 5; 1 + 12 + 15 + 300 = 328. Turbulence (B2+0x8a2 = 30, 20/256) tests every motion
+    // step whose remaining & 30 != 0 [BYTES 0x44d6f9..0x44d774: `test byte [sub+0x24], al`, after the decrement]: em2 80
+    // steps (remaining 79..0) -> 74 tests, em3 20 -> 18: 222 + 1080 = 1302; a pass takes 3 more. So the count is
+    // 1630 + 3k, k ~ Binomial(1302, 20/256) (mean 101.7, sd 9.7): about 1935 +- 29, as this sim gives. The "about
+    // 1860..1910" of item/PICKUPS.md §12 item 10 (a Python sim) is below that mean.
+    {
+        const Ef2 ef = Ef2::load(root / "EFFECT" / "EFT" / "COMMON" / "Z_YARARE03.EF2");
+        for (std::uint32_t seed = 1; seed <= 16; ++seed) {
+            Rng rng;
+            rng.w ^= seed * 0x9e3779b9u;
+            System sys(&rng);
+            const bool ok = ef.ok() && sys.spawn(0x43, ef, SpawnParams{}) != nullptr;
+            const std::uint64_t c0 = rng.calls;
+            for (int s = 0; ok && s < 600 && !sys.particles().empty(); ++s) { sys.step(); sys.sweep(); }
+            const std::uint64_t k3 = rng.calls - 1630;
+            char what[160];
+            std::snprintf(what, sizeof what, "Z_YARARE03 seed %u: %llu draws (%llu at creation) = 1630 + 3 x %llu passes",
+                          seed, (unsigned long long)rng.calls, (unsigned long long)c0, (unsigned long long)(k3 / 3));
+            check(ok && c0 == 1 && rng.calls >= 1630 && k3 % 3 == 0 && k3 / 3 >= 60 && k3 / 3 <= 145 &&
+                      sys.particles().empty(), what);
         }
     }
 

@@ -4800,6 +4800,9 @@ title_again:
     // (located by the brain's ctor, dropped by the new visit) never rose again � the fight could not be won.
     // boss_load[k]: the load serial boss k+1's brain was built under.
     int boss_load[5] = {-1, -1, -1, -1, -1};
+    // FUN_005f51f0's mesh tint, by boss object: the brain writes every material record's +0x24..+0x2c (c17) and it
+    // stays there until a hit flash's draw (FUN_00504140) overwrites it and zeroes it after the draw.
+    std::unordered_map<std::string, Vec3> mesh_tint;
     std::unique_ptr<Boss01> boss;            // Velagunder's brain (the boss host below)
     int drive_boss_entry = -1;               // drive bossentry=k: stand on body entry k (view_boss01_touch.inl)
     std::unique_ptr<Boss02> boss2;           // Nygtilger's brain (the boss02 host below)
@@ -5838,6 +5841,7 @@ title_again:
             su.pos = bm->pos;
             su.player_pos = {feet.x, feet.y + kOriginH, feet.z};
             boss = std::make_unique<Boss01>(su);
+            mesh_tint.erase("boss01");
             for (int k = 0; k < boss01::kBones; ++k) boss_node[std::size_t(k)] = node_of(boss01::kBoneNames[k]);
             boss_n114 = node_of("Bone(114)");
             boss_n115 = node_of("Bone(115)");
@@ -5919,6 +5923,7 @@ title_again:
         boss->camera().t = g_rig.blend_t(); boss->camera().forced = g_rig.forced();
         const Boss01Output out = boss->tick(in);
         for (int id : out.rumble) pad_rumble(id);        // FUN_005d3500 (view_pad.inl)
+        if (out.mesh_tint) mesh_tint["boss01"] = *out.mesh_tint;
         if (out.camera_written) {
             const Boss01Camera& bc = boss->camera();
             g_rig.write_sel(bc.cur, bc.prev, bc.t, bc.rate);
@@ -6302,6 +6307,7 @@ title_again:
     constexpr int kB3Owner = -0xB03;                       // fx owner tag for the core slot
     std::array<int, boss03::kNodes> boss3_node{};          // kNodeNames -> the model's node index
     std::array<ef2sim::M4, boss03::kNodes> boss3_node_m{}; // the posed node frames (attach parents)
+    int boss3_cur_sect = -1;                               // its model's current section (A+0x18), for its decal
     std::array<RehitBank, boss03::kParts> boss3_banks{};   // the parts' own re-hit banks (+0x14c)
     std::array<int, boss03::kClips> boss3_sect{};          // clip id -> the mesh's section index
     // The node records' overrides as the brain last wrote them: Neji / Neck4 +0x15c with +0x104 = 1 (they persist), and
@@ -6494,6 +6500,7 @@ title_again:
         if (bm->sect >= 0 && std::size_t(bm->sect) < bm->clips.size())
             for (const AnimClip& c : mdl->clips)
                 if (c.name == bm->clips[std::size_t(bm->sect)].name) { mdl->pose(c, bm->time); break; }
+        boss3_cur_sect = bm->sect;
         const Mat4 place = boss3->matrix();
         Boss03Input in;
         for (int k = 0; k < boss03::kNodes; ++k) {
@@ -7600,7 +7607,14 @@ title_again:
                 auto flash = [&](const std::string& nm, float f) {
                     const float f0 = f;
                     if (f > 1.0f) f -= 0.65f;
-                    const Vec3 c{107.0f / 255.0f * 0.5f * f, 55.0f / 255.0f * 0.5f * f, 19.0f / 255.0f * 0.5f * f};
+                    Vec3 c{107.0f / 255.0f * 0.5f * f, 55.0f / 255.0f * 0.5f * f, 19.0f / 255.0f * 0.5f * f};
+                    // No flash: the records keep the brain's mesh tint (FUN_005f51f0); a flash replaces it and its
+                    // draw leaves zeros behind.
+                    const auto ti = mesh_tint.find(nm);
+                    if (ti != mesh_tint.end()) {
+                        if (f0 == 0.0f) c = ti->second;
+                        else ti->second = {};
+                    }
                     const auto it = room.mat_add.find(nm);
                     const float was = it == room.mat_add.end() ? 0.0f : it->second.x;
                     if (c.x == was) return;
@@ -9411,6 +9425,26 @@ title_again:
         shadow_frame.room = &room; shadow_frame.eye = cam.pos; shadow_frame.fwd = cam.forward();
         shadow_frame.has_player = !fly; shadow_frame.player = {feet.x, feet.y + kOriginH, feet.z};
         shadow_frame.decals = shadow_frame.tris = shadow_frame.quads = 0;
+        // Gelaldy's shadow (GoMesh type 7, 0x5047f0 [BYTES 0x5048e2..0x50496d], RENDER_LEFTOVERS.md 2.5): shadow0.dds as
+        // the floor-following decal, mode 0 with flag 0x40 cleared (the scene's typed objects too), state 0x20641, grey
+        // 255. i = (s8) table 0x69c2b0[section], none at -1; the node blk+0xa4[{7, 2, 4}[i]] (Saru, RightFyubi1,
+        // LeftFyubi1); A = (P.x, 1.0, P.z), B = (P.x, -1.5, P.z) (the arena ring is at y -1.5); size {3, 2, 2}[i]. As every
+        // decal (SHADOWS.md 2.4): k = 0.025 |B - A| off the alpha and the size.
+        if (boss3 && !boss3->destroyed() && shadows.tex.tex) {
+            static const signed char kSecShadow[32] = {-1, -1, 1, 2, -1, 1, 2, 1, 2, 1, 0, 0, 0, 0, 0, 0,
+                                                       0, -1, -1, 1, 2, -1, 2, 1, 1, 1, 2, 2, 2, -1, -1, -1};
+            static const int kShadowNode[3] = {boss03::kNSaru, boss03::kNRightFyubi1, boss03::kNLeftFyubi1};
+            static const float kShadowSize[3] = {3.0f, 2.0f, 2.0f};
+            const int i = boss3_cur_sect >= 0 && boss3_cur_sect < 32 ? kSecShadow[boss3_cur_sect] : -1;
+            if (i >= 0) {
+                const ef2sim::M4& m = boss3_node_m[std::size_t(kShadowNode[i])];
+                const Vec3 B{m.m[3][0], -1.5f, m.m[3][2]};
+                const float k = 2.5f * 0.025f;                     // |B - A| = 2.5
+                ++shadow_frame.decals;
+                shadow_decal(shadow_frame, B, kShadowSize[i] - k, 1.0f - k, false, 0xffffffu);
+                shadow_flush(g, view, depth, shadows.tex, shadow_frame);
+            }
+        }
         if (!fly && facing >= 0 && facing < 8 && chr.dirs[facing].tex) {
             int ftri = -1;
             const RoomMesh& pm_ = phys_mesh(room);

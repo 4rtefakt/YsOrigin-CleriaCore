@@ -32,8 +32,8 @@
 //     Full, the hull below it [EXPORT 005043e0.c case 6]), draw flags 0x14, and one flat quad under the piece that
 //     darkens the floor with it: B = (x, 0.1, z), half-size 6.0, strength f x 0.35, mode 1, no flags, preset 0x20649
 //     = dest x (1 - target x grey) [BYTES 0x56302b..0x5630f0, 0x6bd2b0 = 0.35; RENDER_LEFTOVERS.md 2.5].
-// [not modelled] boss03's shadow0 decal under three of its nodes (type 7: the node list at [obj+0x490]+0xa4 was
-//   not traced); type 6's attached model at Shadows Full (flags 4) and its `[[obj+0x48c]+4] == 3` gate (K3); the
+// boss03's shadow0 decal under one of three nodes (type 7) is the floor decal of view_game.inl (shadow_decal).
+// [not modelled] type 6's attached model at Shadows Full (flags 4) and its `[[obj+0x48c]+4] == 3` gate (K3); the
 //   0x20649 quad's fog. The blur's taps are k / 2 texels of the source.
 struct BossCaster { const char* name; int type; float h, n2, E, k; };
 static const BossCaster kBossCasters[] = {       // [EXPORT 005043e0.c; BYTES 0x6bd994 = 20, 0x6bd960 = 14, 0x6bd350 = 0.66]

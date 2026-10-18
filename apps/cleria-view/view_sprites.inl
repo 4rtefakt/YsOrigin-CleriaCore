@@ -285,8 +285,27 @@ static void draw_character(Gpu& g, WGPUTextureView color, WGPUTextureView depth,
     };
     RoomVertex verts[4] = {V(lX, tY, 0, 0), V(rX, tY, 1, 0), V(rX, bY, 1, 1), V(lX, bY, 0, 1)};
     // `caustic`: the body takes the caustic stage -- never an additive preset (bit 0x80 [EXPORT 005e0630.c:22]).
-    draw_quad(g, color, depth, additive && g.char_pipeline_add ? g.char_pipeline_add : g.char_pipeline, spr.bind, verts,
-              caustic && !additive);
+    if (additive || !g.body_pipe) {
+        draw_quad(g, color, depth, additive && g.char_pipeline_add ? g.char_pipeline_add : g.char_pipeline, spr.bind,
+                  verts, caustic && !additive);
+        return;
+    }
+    // The body's two draws (view_gpu_room.inl body_pre_pipe / body_pipe). The first copies the quad with every
+    // diffuse and specular word at (c >> 2 & 0x3f3f3f) + (c >> 1 & 0x7f7f7f), alpha kept, i.e. RGB x 0.75
+    // [EXPORT 00474290.c:57-89]. [approx] it shares the second's nudged base: CleriaCore's nudge stands in for the
+    // bill[3] lean both draws have as well as FUN_004745a0's own (SPRITEDEPTH.md §3), and at the feet the lower half
+    // would sink into the floor.
+    auto q34 = [](std::uint8_t c) { return std::uint8_t((c >> 2) + (c >> 1)); };
+    std::uint32_t sp34 = spec & 0xffffffu;
+    sp34 = ((sp34 >> 2) & 0x3f3f3fu) + ((sp34 >> 1) & 0x7f7f7fu);
+    RoomVertex pre[4];
+    for (int k = 0; k < 4; ++k) {
+        pre[k] = verts[k];
+        pre[k].r = q34(cr); pre[k].g = q34(cg); pre[k].b = q34(cb);
+        pre[k].ny = spec_ny(sp34);
+    }
+    draw_quad(g, color, depth, g.body_pre_pipe, spr.bind, pre, caustic);
+    draw_quad(g, color, depth, g.body_pipe, spr.bind, verts, caustic);
 }
 
 // GoPopup glyphs (src/cleria/popup.hpp, PICKUPS.md §13.5): F_GEO20 quads on a billboard at
