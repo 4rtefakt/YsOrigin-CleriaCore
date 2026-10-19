@@ -42,147 +42,19 @@
                         ++killed;
                 }
                 broke += smash_breakables(vol, player_hit_serial, atk_hb.rehit, atk_hb.one_shot, atk_hb.power, atk_cls);
-                // FUN_004fed50's GoMesh pass (VELAGUNDER.md §3.3): each boss part's hurt sphere,
-                // its own re-hit bank, the damage with the part's DEF / resist into part +0x134.
-                // The element bonus (skipped on armour) is part_element's. [not modelled] Toal's refused sections.
-                if (boss && !boss->destroyed())
-                    for (int pi = 0; pi < boss01::kParts; ++pi) {
-                        if (!boss->part_hittable(pi)) continue;
-                        const Boss01Part& bp = boss->part(pi);
-                        const HitShape body = body_shape(bp.hurt_centre, bp.hurt_radius, 0.0f, 0, 0.0f);
-                        if (!overlap(vol, body)) continue;
-                        if (boss_banks[std::size_t(pi)].check_and_record(player_hit_serial, atk_hb.rehit)) continue;
-                        if (atk_hb.one_shot) atk_window = 0;
-                        AttackStats a;
-                        a.atk = player_stats().atk;
-                        a.bonus = atk_hb.power;
-                        EnemyDefense vd; vd.def = bp.def;
-                        for (int k = 0; k < 4; ++k) vd.resist[k] = bp.resist[k];
-                        PlayerDamageMods mods;
-                        mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
-                        mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
-                        const int dmg = lua_part_damage(enemy_incoming_damage(a, atk_cls, vd, mods, [&](float pct) { return float(rng_pct(rng)) < pct; }), a, vd.def, atk_cls);   // the shell's Cheats, the Lua mods' filter
-                        const int dmg_hp = part_element(bp.pos, bp.armor, dmg, atk_cls);
-                        if (dmg > 0) boss->add_part_damage(pi, float(dmg), float(dmg_hp));
-                        boss_part_feedback(bp, dmg, atk_cls);
-                        if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
-                        if (std::getenv("CLERIA_DMG"))
-                            std::printf("  hit boss part %d (DEF %.0f): %d dmg, HP %.0f stun %.0f\n",
-                                        pi, bp.def, dmg, boss->hp(), boss->stun_gauge());
-                    }
-                // Nygtilger (NYGTILGER.md §3.1 / §3.2). The mesh path FUN_004fecb0: [approx] one
-                // ray from the player's origin through the swing volume to its far side (the engine
-                // casts one per attack sub-volume) against each struck-able piece's collision hull;
-                // a struck piece asks its accept-hit callback, then its re-hit bank, then takes
-                // FUN_004faf20(1, 0) with its own DEF / resist. A segment's one-way entries (+0x8c)
-                // are skipped [approx] per object, while both are off (MeshObj::no_collide).
-                if (boss2) {
-                    const RoomMesh& b2m = phys_mesh(room);
+                #include "view_player_parts.inl"   // the bosses' GoXx parts (Velagunder, Gelaldy, Khonsclard, Pictimos, Dalles, Darm)
+                part_atk = &vol;                   // (Darm's block clears it) Nygtilger's pieces take the spark
+                {
+                    // [approx] one ray from the player's origin through the swing volume to its far side (the engine
+                    // casts four or five around each sub-volume, as the locus's below).
                     const Vec3 O{feet.x, feet.y + kOriginH, feet.z};
                     Vec3 d{vol.centre.x - O.x, vol.centre.y - O.y, vol.centre.z - O.z};
                     const float dl = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
                     if (dl > 1e-4f) { d.x /= dl; d.y /= dl; d.z /= dl; }
-                    const Vec3 E{vol.centre.x + d.x * vol.radius, vol.centre.y + d.y * vol.radius,
-                                 vol.centre.z + d.z * vol.radius};
-                    auto b2_damage = [&](float def, const float* resist) {
-                        AttackStats a;
-                        a.atk = player_stats().atk;
-                        a.bonus = atk_hb.power;
-                        EnemyDefense vd; vd.def = def;
-                        for (int k = 0; k < 4; ++k) vd.resist[k] = resist[k];
-                        PlayerDamageMods mods;
-                        mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
-                        mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
-                        return lua_part_damage(enemy_incoming_damage(a, atk_cls, vd, mods, [&](float pct) { return float(rng_pct(rng)) < pct; }), a, vd.def, atk_cls);   // the shell's Cheats, the Lua mods' filter
-                    };
-                    for (int o = 0; o < boss02::kObjects && atk_window > 0; ++o) {
-                        if (!boss2->mesh_hittable(o)) continue;
-                        const char* nm = boss02::object_name(o);
-                        const MeshObj* mo = meshes.find(nm);
-                        const RoomMesh::ObjRange* rr = b2m.object_range(nm);
-                        if (!mo || !rr || mo->no_collide) continue;
-                        Vec3 hit{};
-                        if (!segment_hits_tris(b2m, O, E, rr->t0, rr->t1, &hit)) continue;
-                        Boss02Output fb;
-                        // The throttle's clock is real time; a (lockstep) drive run reads the tick clock so
-                        // the run does not depend on the machine's speed.
-                        const std::uint32_t now_ms = lockstep ? std::uint32_t(tick_count * 1000 / 60)
-                                                              : std::uint32_t(SDL_GetTicks());
-                        // ... and the accept-hit's own splat (0x513364: 1 of 0xffc000c0, size 1.95..2.7) on a cracked
-                        // piece, with the option byte.
-                        const bool ok = boss2->accept_hit(o, hit, now_ms, fb, [&](const Boss02Cosmetic& c) {
-                            if (c.kind == Boss02Cosmetic::kScreenDebris)
-                                blood_at("boss02 hit", 1, 0xffc000c0u, 2, 0x18, 1.95f, 2.7f, c.pos, 0.65f, false, false);
-                        }, settings().s.game.bloody_effect_level > 0);
-                        boss2_apply(fb);
-                        if (!ok) continue;
-                        if (boss2_banks[std::size_t(o)].check_and_record(player_hit_serial, atk_hb.rehit)) continue;
-                        if (atk_hb.one_shot) atk_window = 0;
-                        const Boss02Piece& bp = boss2->object(o);
-                        const int dmg = b2_damage(bp.def, bp.resist);
-                        // [H] FUN_004faf20 skips a victim already below 1 HP: the dead tail stays
-                        // struck-able (its entries are re-armed every frame, §3.5), and without
-                        // this gate each further hit would "kill" it again (pool -350 a time).
-                        if (dmg > 0 && bp.hp >= 1.0f) boss2->add_damage(o, float(dmg));
-                        if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
-                        if (std::getenv("CLERIA_DMG"))
-                            std::printf("  hit %s (DEF %.0f): %d dmg, HP %.0f pool %.0f\n", nm, bp.def, dmg,
-                                        bp.hp, boss2->pool());
-                    }
-                    // The head / tail kind-9 parts: a sphere of r 0.85 (§3.1), their own banks.
-                    for (int k = 0; k < 2 && atk_window > 0; ++k) {
-                        const int o = k == 0 ? 0 : boss02::kPieces - 1;
-                        if (!boss2->part_hittable(o)) continue;
-                        const Boss02Part& pt = boss2->object(o).part;
-                        if (!overlap(vol, body_shape(pt.pos, pt.radius, 0.0f, 0, 0.0f))) continue;
-                        if (boss2_part_banks[std::size_t(k)].check_and_record(player_hit_serial, atk_hb.rehit)) continue;
-                        if (atk_hb.one_shot) atk_window = 0;
-                        const int dmg = b2_damage(pt.def, pt.resist);
-                        // +0x138 = 0: the head's and the tail's hurt part come from FUN_005a1a10({1, idx, 0.85, 0, 0, obj}).
-                        const int dmg_hp = part_element(pt.pos, false, dmg, atk_cls);
-                        if (dmg > 0) boss2->add_part_damage(o, float(dmg), float(dmg_hp));
-                        part_hit_feedback(pt.pos, false, dmg, atk_cls);
-                        if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
-                        if (std::getenv("CLERIA_DMG"))
-                            std::printf("  hit %s part (DEF %.0f): %d dmg, part HP %.0f pool %.0f\n",
-                                        boss02::object_name(o), pt.def, dmg, pt.hp, boss2->pool());
-                    }
+                    const std::vector<std::pair<Vec3, Vec3>> mesh_segs{
+                        {O, {vol.centre.x + d.x * vol.radius, vol.centre.y + d.y * vol.radius, vol.centre.z + d.z * vol.radius}}};
+                #include "view_player_meshes.inl"  // Nygtilger's pieces, Zava's heads
                 }
-                // Gelaldy's five GoXx parts (GELALDY.md §2.3 / §3): the hurt sphere (a guarded part's
-                // centre sits at y -1000), the part's own re-hit bank, FUN_004faf20 with the part's
-                // DEF / resist into +0x134 (and the part HP: the arms are counted twice, G9).
-                if (boss3 && !boss3->destroyed())
-                    for (int pi = 0; pi < boss03::kParts && atk_window > 0; ++pi) {
-                        if (!boss3->part_hittable(pi)) continue;
-                        const Boss03Part& bp = boss3->part(pi);
-                        if (!overlap(vol, body_shape(bp.hurt_centre, bp.hurt_radius, 0.0f, 0, 0.0f))) continue;
-                        if (boss3_banks[std::size_t(pi)].check_and_record(player_hit_serial, atk_hb.rehit)) continue;
-                        if (atk_hb.one_shot) atk_window = 0;
-                        AttackStats a;
-                        a.atk = player_stats().atk;
-                        a.bonus = atk_hb.power;
-                        EnemyDefense vd; vd.def = bp.def;
-                        for (int k = 0; k < 4; ++k) vd.resist[k] = bp.resist[k];
-                        PlayerDamageMods mods;
-                        mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
-                        mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
-                        const int dmg = lua_part_damage(enemy_incoming_damage(a, atk_cls, vd, mods, [&](float pct) { return float(rng_pct(rng)) < pct; }), a, vd.def, atk_cls);   // the shell's Cheats, the Lua mods' filter
-                        // +0x138 = 0 on every part (FUN_005a1a10 takes it from the ctor's {2, i, 0.75, 0, ..}, 0x5201f7):
-                        // the element bonus on the part's HP, the elemental effect and the white number on each hit.
-                        const int dmg_hp = part_element(bp.pos, false, dmg, atk_cls);
-                        if (dmg > 0) boss3->add_part_damage(pi, float(dmg), float(dmg_hp));
-                        part_hit_feedback(bp.pos, false, dmg, atk_cls);
-                        if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
-                        if (std::getenv("CLERIA_DMG"))
-                            std::printf("  hit gelaldy part %d (DEF %.0f): %d dmg, part HP %.0f body %.0f\n",
-                                        pi, bp.def, dmg, bp.hp, boss3->hp());
-                    }
-                #include "view_boss04_hit.inl"     // Khonsclard's parts (KHONSCLARD.md §A.2.3)
-                #include "view_boss05_hit.inl"     // Pictimos's parts (PICTIMOS.md §P1.4.1)
-                #include "view_boss06_hit.inl"     // Zava's heads: the accept-hit callback (ZAVA_D.md §7.1)
-                #include "view_boss07_hit.inl"     // Dalles's parts (DALLES_AB.md §B.2)
-                part_atk = nullptr;                // [not modelled] Darm's parts' hit spark (that fight is ported apart)
-                #include "view_boss08_hit.inl"     // Darm's parts (DARM_D.md §4.3)
             }
             // GoLocusSword (src/cleria/locus.hpp, build/ability_re/LOCUS.md): the player's GenerateLocus
             // sweeps. FUN_004281c0 updates the locus pool after the player and the actors; a locus with
@@ -197,7 +69,7 @@
             // alpha >= 0.75 (0x6bd390), SE 0x5d at the hit point, unless a boss part was hit within 300 ms (0x74e7e4,
             // boss_part_se_tick) or the last such SE is within 72 ms (0x7ddb8c); the ms are the drive's 50 / 3 a tick.
             // [approx] "nearer than the nearest so far" is taken over the collision mesh's triangles before the object
-            // (the pool order), and the object flags +0x298 & 0x4060 are not kept. [not modelled] the boss parts.
+            // (the pool order), and the object flags +0x298 & 0x4060 are not kept. Then the part-list pass with the locus as the attacker (view_player_parts.inl).
             if (!loci.empty()) {
                 LocusSword::Owner lo;
                 lo.origin = {feet.x, feet.y + kOriginH, feet.z};   // +0x50
@@ -227,6 +99,46 @@
                         if (player_hit_enemy(en, vr, bonus, knock, /*rtype +0x108*/ 0, cls, lo.facing)) ++killed;
                     }
                     for (const HitShape& h : sp) broke += smash_breakables(h, tok, rehit, false, bonus, cls);
+                    // ... and the part-list pass with the locus as the attacker (view_player_parts.inl): its three spheres, the
+                    // swing's token on each part's own bank, its own power and class; then the scene-mesh pass (view_player_meshes.inl).
+                    {
+                        AsoVm::Hitbox atk_hb;                  // the locus's record, under the swing's names
+                        atk_hb.rehit = rehit; atk_hb.power = bonus;
+                        const int atk_cls = cls;
+                        const std::uint32_t player_hit_serial = tok;
+                        int atk_window = 1;
+                        for (const HitShape& vol : sp) {
+                            part_atk = &vol;
+                #include "view_player_parts.inl"
+                        }
+                        // The mesh pass: for each sphere, d = normalize(centre - the locus's +0x50), which FUN_005002e0
+                        // copies from the owner's +0x254 (its feet as last drawn) [EXPORT 005002e0.c:163-164]; four rays of
+                        // 2r along d starting at centre - d r, offset by +-a f and +-b f with a = d x (0, 1, 0), b = d x a,
+                        // f = r x 0.71 (0x6bd384), and a fifth through the centre when f > 0.5 [EXPORT 004fed50.c:198-260].
+                        // [approx] +0x254 is this tick's feet.
+                        std::vector<std::pair<Vec3, Vec3>> mesh_segs;
+                        for (const HitShape& vol : sp) {
+                            const Vec3 c = vol.centre;
+                            const float r = vol.radius, f = r * 0.71f;
+                            Vec3 d{c.x - feet.x, c.y - feet.y, c.z - feet.z};
+                            const float dl = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+                            if (dl > 0.0f) { d.x /= dl; d.y /= dl; d.z /= dl; } else d = {};
+                            const Vec3 a{-d.z, 0.0f, d.x};
+                            const Vec3 bb{(d.y * a.z) * f, (d.z * a.x - d.x * a.z) * f, (-d.y * a.x) * f};
+                            const Vec3 S{c.x - d.x * r, c.y - d.y * r, c.z - d.z * r};
+                            const Vec3 V{d.x * 2 * r, d.y * 2 * r, d.z * 2 * r};
+                            auto seg = [&](Vec3 s) { mesh_segs.push_back({s, {s.x + V.x, s.y + V.y, s.z + V.z}}); };
+                            seg({S.x + a.x * f, S.y, S.z + a.z * f});
+                            seg({S.x - a.x * f, S.y, S.z - a.z * f});
+                            seg({S.x + bb.x, S.y + bb.y, S.z + bb.z});
+                            seg({S.x - bb.x, S.y - bb.y, S.z - bb.z});
+                            if (f > 0.5f) seg(S);
+                        }
+                        const HitShape& vol = sp[0];   // the hit spark's sphere
+                        part_atk = &vol;
+                #include "view_player_meshes.inl"
+                        part_atk = nullptr;
+                    }
                     const std::uint32_t fi0 = std::uint32_t(loci[li].sword.frame_at_tick_start());
                     if (std::uint32_t(loci[li].sword.clank_lo()) <= fi0 && fi0 < std::uint32_t(loci[li].sword.clank_hi()) && wx.hit) {
                         const Vec3 O = lo.origin, S = sp[0].centre, D{S.x - O.x, S.y - O.y, S.z - O.z};
