@@ -309,8 +309,9 @@ CASES = {
         room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="15", CLERIA_BOSSLOG="1", CLERIA_DMG="1"),
         drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
               + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 2701, 12)) + "2710:quit",
-        expect=["clip RUN_", "[hurt] alt applier (no HP) section 256 -> 9 knock 1.30",
-                "velagunder part 18 (STR 70 power 0.0 rtype 3 r 1.25) player hp 139 -> 139"]),
+        # Re-pinned 2026-10-19 (the sword's trail hits the bosses' parts and Nygtilger's / Zava's meshes): the contact is RUN_R's part 15 at t2624, the player in section 260.
+        expect=["clip RUN_", "[hurt] alt applier (no HP) section 260 -> 9 knock 1.30",
+                "velagunder part 15 (STR 70 power 0.0 rtype 3 r 1.25) player hp 139 -> 139"]),
     # The taunt (VELAGUNDER.md C10, §5.8: state 8, ACTION_01 — the player grounded on surface 5 (his wood body)
     # with the floor above 4.0, out of his reach). After the first stun is over (t2610: state 0, WAIT) Yunica is
     # put on the top of his right shoulder, on the hull as it is posed now (`at3`: the floor below (2.5, 14, 33),
@@ -1697,10 +1698,11 @@ CASES.update({
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;10:move=0,1,200;"
               "40:every=20,1000,ok;1030:every=40,4100,boss5;1038:every=40,4100,atk;2400:opt=DamageDealt=20;4100:quit",
         expect=["[boss05] Pictimos: body 4000, STR 220 lv 40", "sect RAKKATYUU", "sect TYAKUTI", "f156 1",
-                "sect ZOROMEKA", "sect DEAD", "body 1/4000 guts 1 waves 0 summons 12/20", "body 481/4000 guts 1",
+                "sect ZOROMEKA", "sect DEAD", "body 1/4000 guts 1 waves 0 summons 13/27", "body 521/4000 guts 1",
                 "EXP (lv 40)", "flag 224 = 1", "destroyed"],
-        # The 12 summons he takes back die in the fight: each one's handler burst (SE 11, effect 0x43, FUN_004ac470).
-        count={"death burst (SE 11, effect 0x43)": 12}),
+        # Re-pinned 2026-10-19 (the sword's trail hits the bosses' parts and Nygtilger's / Zava's meshes): 27 summons, 13 alive when he falls, body 1 -> 521; EXP t2856, 224 t3354.
+        # The 13 summons he takes back die in the fight: each one's handler burst (SE 11, effect 0x43, FUN_004ac470).
+        count={"death burst (SE 11, effect 0x43)": 13}),
     # ... and as Hugo: his shots' particles reach Pictimos's parts (part 1 takes the damage, the DEF-999 ones none).
     "pictimos_hugo": dict(
         room="S_50/S_5099/S_5099", char="2",
@@ -1726,7 +1728,7 @@ CASES.update({
     "zava_fight": dict(
         room="S_60/S_6082/S_6082",
         env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
-        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.45;8:tier=10;9:flag=205,1;10:saveload;"
+        drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.43;8:tier=10;9:flag=205,1;10:saveload;"
               "11:flag=163,1;60:boss6;6400:quit",
         # Re-pinned 2026-10-13 (issues #104 and #107: the tell beam 322 is no longer killed by its mode-0 particles on
         # the floor, and the no-jump entry of a head slides the player 0.0025 a tick). Head b first, then a, as
@@ -1762,7 +1764,9 @@ CASES.update({
                 "BossCam 1", "Zava phase 1 action 1 hp 6000/6000", "jump under Zava (act 4)", "second jump",
                 "air attack", "y 13.00, falling, hits left 0", "Zava phase 1 action 11", "y 6.83, grounded",
                 # (4178 since 2026-10-12: the landing effect's draws, ADOL.md §13; every beat of the list is as before)
-                "Zava phase 1 action 0", "Zava phase 2 action 0 hp 4034/6000", "BossCam 3", "move 9", "BossCam 4",
+                # (2026-10-19, the sword's trail hits the heads' meshes and the parts: at 0.45 she dies on the ground after
+                # head a; Damage dealt 0.43 keeps every beat, phase 2 at 4063, flag 225 at t5524)
+                "Zava phase 1 action 0", "Zava phase 2 action 0 hp 4063/6000", "BossCam 3", "move 9", "BossCam 4",
                 "move 10", "riding, hits left 0, ride count 1, lives 0/4", "head b move 12 (pattern 2, lives 3)",
                 "lives 0/2", "lives 0/1",
                 "head b move 8 (pattern 2, lives 0)", "Zava is thrown off head b",
@@ -1808,11 +1812,14 @@ CASES.update({
         drive="4:diff=4;5:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=0.8;8:tier=10;9:flag=205,1;"
               # (400, was 360, since 2026-10-13, issue #107: on head b's no-jump entry the slide moves her, she lands
               # two more hits after the knock-down and the second lightning choice comes at t373, was t360.)
-              "10:saveload;11:flag=163,1;60:boss6=lightning;400:quit",
+              # Re-pinned 2026-10-19 (the sword's trail hits Zava's heads and the bosses' parts): no hit lands in her
+              # first rise; she is knocked down again (action 11 at t423) and the hit with 4 left comes at t570.
+              "10:saveload;11:flag=163,1;60:boss6=lightning;600:quit",
         expect=["HP 5000 STR 232 DEF 325, level 4", "Zava phase 1 action 1 hp 7500/7500", "Zava phase 1 action 8",
                 "jump under Zava (act 8)", "flying, hits left 3", "flying, hits left 2", "flying, hits left 1",
                 "falling, hits left 0", "Zava phase 1 action 11", "y 6.83, grounded", "Zava phase 1 action 0",
-                "flying, hits left 4", "Zava phase 1 action 4", "Zava phase 1 action 8"]),
+                "Zava phase 1 action 4", "Zava phase 1 action 8", "Zava phase 1 action 11", "Zava phase 1 action 0",
+                "flying, hits left 4"]),
     # Without the double jump (flag 163 unset) no jump attack reaches her: a single jump tops at feet y 8.62.
     "zava_single_jump": dict(
         room="S_60/S_6082/S_6082",
@@ -1853,14 +1860,14 @@ CASES.update({
         env={"CLERIA_CHAR": "1", "CLERIA_BOSSLOG": "1"},
         drive="3:opt=InfiniteMP=1;4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=1.0;8:tier=10;"
               "9:flag=205,1;10:saveload;11:flag=116,1;12:flag=117,1;13:flag=118,1;14:flag=182,3;15:flag=183,3;"
-              "16:flag=184,3;17:bracelet=116;60:boss7;9000:quit",
+              "16:flag=184,3;17:bracelet=116;61:boss7;9000:quit",
         expect=["[boss07] Dalles: HP 2500 STR 255, parts DEF 255 pool 25000, options 1000",
                 "the fight starts at (0.00,4.00,0.00)", "target the core with the sword", "clip N_SHOOT_R (variant 0)",
                 "bullet kind 0x2 effect 409", "the swing hits part 0 (class 3)", "clip N_SHOOT_L (variant 0)",
                 "bullet kind 0x2 effect 398", "mode 0 -> 1", "clip N2W_CHANGE", "barrier W up",
                 "the Skill button (bracelet 0x74", "(class 0): ",
-                "phase 1 (max HP 3750)", "impact 404", "a pillar bullet", "barrier W broken (window 599)",
-                "target the core with the sword", "the window closed", "barrier F up",
+                "phase 1 (max HP 3750)", "barrier W broken (window 599)", "target the core with the sword",
+                "impact 404", "a pillar bullet", "the window closed", "barrier F up",
                 "the Skill 3 key (bracelet 0x76 for barrier 3)", "(class 3): 0 dmg (clank), barrier 3", "(class 1): ", "bullet kind 0x2 effect 403",
                 "barrier F broken (window 599)", "barrier E up", "the Skill 2 key (bracelet 0x75 for barrier 2)",
                 "(class 2): ", "bullet kind 0x4 effect 400", "barrier E broken (window 599)", "CamSlot 4",
@@ -1912,7 +1919,10 @@ CASES.update({
                 "destroyed", ">> entering S_7000"],
         # (impact 404: 2, was 4, since 2026-10-13, issue #104: of BS_07_TAMA_B's emitters with the impact id only
         # emitter 11 has a hit mode; the mode-0 ones (9, 10, 12) gave a second pillar bullet at each point.)
-        count={"boss_defeated": 1, "impact 404 at": 2, "[bgm] 17 (scene)": 1}),
+        # Re-pinned 2026-10-19 (the sword's trail hits the bosses' parts: the swing's sword now meets the barrier from
+        # the blade's range). From t60 the sword never clanks on barrier 3; from t61 every beat is kept, one of the W
+        # attack's pillar bullets lands, at t871 after the barrier W broke (t855), the capture at t3847, the kill at t5691.
+        count={"boss_defeated": 1, "impact 404 at": 1, "[bgm] 17 (scene)": 1}),
     # Darm (build/boss_re/DARM*.md; src/cleria/boss08, apps/cleria-view/view_boss08.inl). Toal's last fight, from the
     # room's own retry start: flag 205 = 1 and a reload make the root script Mesh_Locate boss08 (its ctor builds the
     # tail, the core, the arms and the floor s7099yuka), place the player at (0, 0, -10) and run Battle (flag 156 at
@@ -1960,34 +1970,37 @@ CASES.update({
         room="S_70/S_7099/S_7099",
         env={"CLERIA_CHAR": "3", "CLERIA_BOSSLOG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
         drive="4:opt=DamageTaken=0;5:opt=InfiniteHP=1;6:level=50;7:opt=DamageDealt=2;8:tier=10;9:flag=205,1;10:saveload;"
-              "11:flag=163,1;60:boss8;61:every=15,14500,oktapf;14500:quit",
+              "11:flag=163,1;60:boss8;61:every=15,16500,oktapf;16500:quit",
+        # Re-pinned 2026-10-19 (the sword's trail hits the bosses' parts and Nygtilger's / Zava's meshes): the course is
+        # Normal, Low (t1227), Normal, High (t4610), Low, OnBack (t8500); the barrier breaks twice (t9690, t11021) and is back
+        # after each window, and the kill is at t12111 with the barrier up again; the run 16500 ticks.
         expect=["[boss08] Darm: core HP 9999 STR 259 DEF 275, parts DEF 275 pool 99990",
                 "boss08t: 39 of 60 collision entries off (mask 0xffffffff)", "[bgm] 18 (scene)",
                 "the fight starts, the body at (0.00,0.00,8.50)", "target part 5 from the floor",
                 "the swing hits part 5 (DEF 998, class 3): 2 dmg", "target part 7 from the floor",
                 "the swing hits part 7", "boss08: 2 of 67 collision entries off (mask 0x4)", "with a jump",
-                "target part 2 from the floor",
-                "MatMode 1: black (Down)", "boss08: 42 of 67 collision entries off (mask 0xf)",
-                "DOWN: the core is exposed (weak point the belly)", "clip 37_NormalDown",
-                "target the core 0", "the swing hits the core 0 (DEF 275, class 3)", "the exposure ends, core hp",
+                "target part 2 from the floor", "MatMode 1: black (Down)",
+                "boss08: 42 of 67 collision entries off (mask 0xf)",
+                "DOWN: the core is exposed (weak point the belly)", "clip 37_NormalDown", "target the core 0",
+                "the swing hits the core 0 (DEF 275, class 3)", "the exposure ends, core hp",
                 "boss08: 0 of 67 collision entries off (mask 0x0)", "band 1 (the refill starts", "CamSlot 6 (0.020)",
-                "MatMode 2: the outline (form change)", "form Normal -> High", "the floor moves: over to",
-                "the refill ends at hp", "CamSlot 3 (0.025)", "MatMode 0: lit", "settled in High",
-                "touch boss08 (side) -> touch_tail",
-                "clip 39_HighDown", "band 2 (the refill starts", "form High -> Normal", "band 3 (the refill starts", "form Normal -> Low", "band 4 (the refill starts",
+                "MatMode 2: the outline (form change)", "form Normal -> Low", "settled in Low", "clip 38_LowDown",
+                "form Low -> Normal", "settled in Normal", "DOWN: the core is exposed (weak point the right leg)",
+                "band 2 (the refill starts", "form Normal -> High", "the floor moves: over to", "settled in High",
+                "touch boss08 (side) -> touch_tail", "clip 39_HighDown", "band 3 (the refill starts",
+                "form High -> Low", "settled in Low", "clip 38_LowDown", "band 4 (the refill starts",
                 "form Low -> OnBack", "the barrier is up", "CamSlot 5 (1.000)", "the player fell off the floor",
-                "effect 517", "settled in OnBack", "(24_StabInTheGround)", "CamSlot 4 (",
-                "the player is put back at (0.0,19.0,-6.0)",
-                "the swing hits the core 0 (DEF 998, class 3): 2 dmg", "bullet(s) kind 0x25 effect 484",
-                "(25_PullFromTheGround)", "released from Bone_", "(20_Beat)", "barrier 59",
-                "the barrier breaks (window 900)", "[pilot] t7562 the window: to the skirt's mouth",
-                "the window: inside the skirt, the air combo at the core",
-                "the swing hits the core 0 (DEF 295, class 3): 24 dmg", "touch boss08t (side) -> touch_tail",
-                "the window closed: the barrier is back", "the barrier breaks (window 900)",
-                "flag 215 = 0", "[boss08] t9708 the kill (core hp", "motion boss08 30_OnBackWait", "flag 227 = 1",
+                "effect 517", "the player is put back at (0.0,19.0,-6.0)", "settled in OnBack", "(20_Beat)",
+                "CamSlot 4 (", "bullet(s) kind 0x25 effect 484",
+                "the swing hits the core 0 (DEF 998, class 3): 2 dmg", "(24_StabInTheGround)", "released from Bone_",
+                "barrier 59", "the barrier breaks (window 900)",
+                "the window: inside the skirt, the air combo at the core", "the window closed: the barrier is back",
+                "the barrier breaks (window 900)", "the swing hits the core 0 (DEF 295, class 3): 24 dmg",
+                "touch boss08t (side) -> touch_tail", "the window closed: the barrier is back", "flag 215 = 0",
+                "[boss08] t12111 the kill (core hp", "motion boss08 30_OnBackWait", "flag 227 = 1",
                 "[content] boss_defeated S_7099 flag 227", "the death timeline starts", "the body is gone (alpha 0)",
                 "[bgm] 0 (script: stop over 3500 ms)", ">> entering S_7000"],
-        count={"boss_defeated": 1, "the barrier breaks (window 900)": 2, "the window closed: the barrier is back": 1}),
+        count={"boss_defeated": 1, "the barrier breaks (window 900)": 2, "the window closed: the barrier is back": 2}),
     # Darm ON FOOT (drive `boss8=walk`, view_boss08.inl): darm_fight's pilot without its placements — from the retry
     # start at (0, 0, -10) the stick is held along a route over resting tiles clear of the hulls to each spot, and
     # Attack / Jump are pressed only there (the first target at t272, part 7 from (-7.66, 5.60)). Through the four
@@ -2023,30 +2036,29 @@ CASES.update({
         # stalls 5,000 ticks in Low and kills in the first window at t17735; started at t64 it meets the forms Normal,
         # Low, High, Normal, Low, OnBack (t12306), breaks the barrier at t13758, and kills in the SECOND window at
         # t15527; the run 18000 ticks.
+        # Re-pinned 2026-10-19 (the sword's trail hits the bosses' parts and Nygtilger's / Zava's meshes): the course is
+        # Normal, High (t2564), Low, High, Low, OnBack (t9714); every Down as before, the barrier breaks once (t10789) and the
+        # kill is inside that first window, from the skirt, at t11651.
         expect=["[boss08] Darm: core HP 9999 STR 259 DEF 275, parts DEF 275 pool 99990",
                 "boss08t: 39 of 60 collision entries off (mask 0xffffffff)", "[bgm] 18 (scene)",
                 "the fight starts, the body at (0.00,0.00,8.50)", "touch boss08 (side) -> touch_tail",
-                "[pilot] t320 target part 6 from the floor, from (-6.08,9.90)", "with a jump", "the swing hits part 7",
-                "bullet(s) kind 0x25 effect 467", "target part 5 from the floor",
-                "the swing hits part 5 (DEF 998, class 3): 2 dmg", "boss08: 2 of 67 collision entries off (mask 0x4)",
-                "MatMode 1: black (Down)", "DOWN: the core is exposed (weak point the belly)", "clip 37_NormalDown",
-                "target the core 0", "the swing hits the core 0 (DEF 275, class 3)", "the exposure ends, core hp",
-                "boss08: 0 of 67 collision entries off (mask 0x0)", "band 1 (the refill starts", "CamSlot 6 (0.020)",
-                "MatMode 2: the outline (form change)", "form Normal -> Low", "the refill ends at hp",
+                "[pilot] t320 target part 6 from the floor, from (-6.08,9.90)", "with a jump",
+                "the swing hits part 7", "DOWN: the core is exposed (weak point the belly)", "clip 37_NormalDown",
+                "the exposure ends, core hp", "band 1 (the refill starts", "form Normal -> High", "settled in High",
+                "DOWN: the core is exposed (weak point the right leg)", "clip 39_HighDown",
+                "band 2 (the refill starts", "form High -> Low", "settled in Low", "clip 38_LowDown",
+                "form Low -> High", "settled in High", "DOWN: the core is exposed (weak point the belly)",
+                "clip 39_HighDown", "band 3 (the refill starts", "form High -> Low", "settled in Low",
+                "clip 38_LowDown", "band 4 (the refill starts", "form Low -> OnBack", "the barrier is up",
                 "CamSlot 5 (1.000)", "the player fell off the floor", "effect 517",
-                "the player is put back at (0.0,19.0,-6.0)", "motion s7099yuka c", "CamSlot 2 (0.025)",
-                "settled in Low", "clip 38_LowDown", "form Low -> High", "CamSlot 3 (0.025)", "MatMode 0: lit",
-                "settled in High", "boss08: 42 of 67 collision entries off (mask 0xf)", "clip 39_HighDown",
-                "band 2 (the refill starts", "form High -> Normal", "band 3 (the refill starts", "form Normal -> Low",
-                "band 4 (the refill starts", "form Low -> OnBack", "the barrier is up", "CamSlot 4 (",
-                "settled in OnBack", "(24_StabInTheGround)", "the swing hits the core 0 (DEF 998, class 3): 2 dmg",
-                "(20_Beat)", "(25_PullFromTheGround)", "released from Bone_", "barrier 59",
-                "the barrier breaks (window 900)", "[pilot] t13759 the window: to the skirt's mouth",
+                "the player is put back at (0.0,19.0,-6.0)", "settled in OnBack",
+                "the swing hits the core 0 (DEF 998, class 3): 2 dmg", "(20_Beat)", "released from Bone_",
+                "barrier 59", "the barrier breaks (window 900)",
                 "the window: inside the skirt, the air combo at the core", "touch boss08t (side) -> touch_tail",
-                "the swing hits the core 0 (DEF 295, class 3): 24 dmg",
-                "the window closed: the barrier is back", "the barrier breaks (window 900)", "flag 215 = 0",
-                "[boss08] t15527 the kill (core hp", "motion boss08 30_OnBackWait", "flag 227 = 1",
-                "[content] boss_defeated S_7099 flag 227"],
+                "the swing hits the core 0 (DEF 295, class 3): 24 dmg", "flag 215 = 0",
+                "[boss08] t11651 the kill (core hp", "motion boss08 30_OnBackWait", "flag 227 = 1",
+                "[content] boss_defeated S_7099 flag 227", "the death timeline starts", "the body is gone (alpha 0)",
+                "[bgm] 0 (script: stop over 3500 ms)", ">> entering S_7000"],
         absent=["the floor moves: over to"]),
     # "I can't hit Darm's hands without taking damage at max melee range" (2026-10-13). The sword's trail — the
     # GoLocusSword of every combo swing — was never scanned against the bosses' GoXx parts: a swing reached a limb
@@ -2989,7 +3001,8 @@ CASES.update({
         env={"CLERIA_DMG": "1", "CLERIA_DRIVE_LOCKSTEP": "1"},
         drive="2:diff=3;3:saveload;4:opt=DamageTaken=0;6:level=45;7:tier=8;10:lua=on chip;20:at=-2.8,23.3,0;40:every=20,700,ok;"
               "720:every=12,1100,boss4;721:every=12,1100,atk;1100:quit",
-        expect=["[boss04] Khonsclard: body 3750, pods 900", "boss4 -> part 1", _LP + "damage dealt cast nil lv nil atk 246 power 3 def 175 formula 144 value 144",
+        # (2026-10-19, the sword's trail hits the bosses' parts and Nygtilger's / Zava's meshes: the pod's first hit is the swing before, power 2.)
+        expect=["[boss04] Khonsclard: body 3750, pods 900", "boss4 -> part 1", _LP + "damage dealt cast nil lv nil atk 246 power 2 def 175 formula 143 value 143",
                 "hit khonsclard part 1 (DEF 175): 1 dmg, part HP 899 body 3750"],
         absent=_NOSTOP),
     # "suppress" on every drop: the kill leaves debris only.
@@ -3588,8 +3601,9 @@ CASES.update({
         # Re-pinned 2026-10-17 (#115, darm_fight's note: the silver shots): the first band is at t1278 and the next
         # form is High — its light 0xff8080aa at t1279. The run 1500 ticks.
         # Re-pinned 2026-10-17 (the wall clank's sparks and the boss parts' hit spark / elemental effect: their draws of the shared xorshift): the same High form, its light at t1286.
+        # Re-pinned 2026-10-19 (the sword's trail hits the bosses' parts and Nygtilger's / Zava's meshes): the next form is Low — its light at t1227.
         expect=["[light] t11 the scene light's colour (0.667, 0.502, 0.502)",
-                "[light] t1286 the scene light's colour (0.502, 0.502, 0.667)"]),
+                "[light] t1227 the scene light's colour (0.667, 0.667, 0.502)"]),
     # The frame hold (§7.3): Zava's death (zava_fight's run) writes 0x76a548 / 0x76a54c = 1.0 / -0.025 with
     # 0x7b2488 = 1: that frame is copied and drawn over the live scene, first at floor(0.975 x 256) = 249.
     # Re-pinned 2026-10-10 (the dust puffs, as zava_fight): her death is at t4102, was t3830; the run ends at t4400.

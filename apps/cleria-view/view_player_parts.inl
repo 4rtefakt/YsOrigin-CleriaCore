@@ -7,7 +7,7 @@
 // `vol` (the volume), `player_hit_serial` (the token, +0xf0), `atk_hb` (.rehit, .power, .one_shot), `atk_cls`,
 // `atk_window` (set to 0 by a one-shot volume's first hit), `part_atk` (the hit spark's attacker sphere; Darm's
 // parts take none). One boss lives at a time: the order here is no rule.
-// Not here: the scene-mesh ray pass (Nygtilger's pieces, Zava's heads) — the swing's only (view_player_hit.inl).
+// Not here: the scene-mesh ray pass (Nygtilger's pieces, Zava's heads): view_player_meshes.inl.
                 // FUN_004fed50's GoMesh pass (VELAGUNDER.md §3.3): each boss part's hurt sphere,
                 // its own re-hit bank, the damage with the part's DEF / resist into part +0x134.
                 // The element bonus (skipped on armour) is part_element's. [not modelled] Toal's refused sections.
@@ -70,3 +70,36 @@
                 #include "view_boss07_hit.inl"     // Dalles's parts (DALLES_AB.md §B.2)
                 part_atk = nullptr;                // [not modelled] Darm's parts' hit spark (that fight is ported apart)
                 #include "view_boss08_hit.inl"     // Darm's parts (DARM_D.md §4.3)
+                part_atk = &vol;                   // (Darm's block clears it)
+                // Nygtilger's head and tail kind-9 parts (NYGTILGER.md §3.1): GoXx parts of the same list.
+                if (boss2) {
+                    auto b2_damage = [&](float def, const float* resist) {
+                        AttackStats a;
+                        a.atk = player_stats().atk;
+                        a.bonus = atk_hb.power;
+                        EnemyDefense vd; vd.def = def;
+                        for (int k = 0; k < 4; ++k) vd.resist[k] = resist[k];
+                        PlayerDamageMods mods;
+                        mods.atk_debuff = ail.has(ailments::kCurse);   // FUN_004fa550: ATK - 5, floor 0
+                        mods.yunica_bonus = character == 1 && game.g_flags[149] == 0;
+                        return lua_part_damage(enemy_incoming_damage(a, atk_cls, vd, mods, [&](float pct) { return float(rng_pct(rng)) < pct; }), a, vd.def, atk_cls);   // the shell's Cheats, the Lua mods' filter
+                    };
+                    // The head / tail kind-9 parts: a sphere of r 0.85 (§3.1), their own banks.
+                    for (int k = 0; k < 2 && atk_window > 0; ++k) {
+                        const int o = k == 0 ? 0 : boss02::kPieces - 1;
+                        if (!boss2->part_hittable(o)) continue;
+                        const Boss02Part& pt = boss2->object(o).part;
+                        if (!overlap(vol, body_shape(pt.pos, pt.radius, 0.0f, 0, 0.0f))) continue;
+                        if (boss2_part_banks[std::size_t(k)].check_and_record(player_hit_serial, atk_hb.rehit)) continue;
+                        if (atk_hb.one_shot) atk_window = 0;
+                        const int dmg = b2_damage(pt.def, pt.resist);
+                        // +0x138 = 0: the head's and the tail's hurt part come from FUN_005a1a10({1, idx, 0.85, 0, 0, obj}).
+                        const int dmg_hp = part_element(pt.pos, false, dmg, atk_cls);
+                        if (dmg > 0) boss2->add_part_damage(o, float(dmg), float(dmg_hp));
+                        part_hit_feedback(pt.pos, false, dmg, atk_cls);
+                        if (skillmp::boost_hit_counts(skillmp::attack_kind(avm.section()))) add_boost(300.0f);
+                        if (std::getenv("CLERIA_DMG"))
+                            std::printf("  hit %s part (DEF %.0f): %d dmg, part HP %.0f pool %.0f\n",
+                                        boss02::object_name(o), pt.def, dmg, pt.hp, boss2->pool());
+                    }
+                }
