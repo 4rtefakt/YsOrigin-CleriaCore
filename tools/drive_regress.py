@@ -320,7 +320,7 @@ CASES = {
         room="S_10/S_1099/S_1099", env=dict(CLERIA_LEVEL="15", CLERIA_BOSSLOG="1", CLERIA_DMG="1"),
         drive="10:at=0,15,180;" + "".join(f"{t}:ok;" for t in range(60, 1801, 40))
               + "".join(f"{t}:boss;{t + 1}:atk;" for t in range(2000, 2541, 12))
-              + "2640:at3=6,13,33,0;2645:pos;2800:pos;2900:quit",
+              + "2585:at3=6,13,33,0;2590:pos;2800:pos;2900:quit",
         # Re-pinned 2026-10-10, twice. The dust puffs (20 draws at every hit the player takes move Velagunder's
         # stream) put the stun 25 ticks later and the placement at t2641; with the blood splats (18 more draws at each
         # of those hits) the stun is where it was before both, and so are the placement (t2620) and the two stands.
@@ -330,8 +330,10 @@ CASES = {
         # §2.3): the old spot (2.5, 13, 33) is inside boss01_hit2, so she was pushed off it and fell to the floor. She
         # is put on the hull beside that block, (6, 13, 33), and 20 ticks later: the stun ends between t2610 and t2640 now
         # (hit1's front face, z 28.8, holds her back on the floor, so the pilot's swings land at other times).
-        expect=["stun 0 STUNNED", "t2640 at3=6,13,33,0", "state 0 sub 1", "feet (5.914, 8.948, 32.931)",
-                "state 8 sub 1", "clip ACTION_01", "feet (5.409, 9.968, 32.255)", "state 8 sub 1"]),
+        # Re-pinned 2026-10-19 (the sword's trail hits the bosses' parts): the stun is over at t2550 and he runs from
+        # t2610, so she is put on the same spot at t2585 (at t2640 she lands on the floor beside the running body).
+        expect=["stun 0 STUNNED", "state 0 sub 1", "t2585 at3=6,13,33,0", "feet (6.249, 8.834, 33.379)",
+                "state 8 sub 1", "clip ACTION_01", "feet (5.347, 9.823, 32.428)", "state 8 sub 1"]),
     # ... and the kill (Lv 60): the death timeline's end block sets flag 220 and awards the EXP, which releases
     # BATTLE_0.XSO into SENTOUGO.XSO (the stairs rise: stepup_se).
     # The swings into his body also clank (FUN_00500ac0: SE 0x5d on a boss mesh, `CLERIA_DUST` logs it).
@@ -394,8 +396,12 @@ CASES = {
         # hit1's front face (z 28.8), (-0.457, 2.000, 27.248) at t2429; the walk up the hand and the arm is unchanged, but
         # the spot on the shoulder (-2.0, 32.8) is inside boss01_hit2's block, so that `goto` stops at its face,
         # (-2.813, 10.494, 32.704). From there the two 11-damage hits on the core still land.
-        expect=["[boss] Velagunder: HP 875 STR 63 DEF 54 lv 8", "feet (-0.457, 2.000, 27.248)", "stun 0 STUNNED",
-                "goto ends at (-6.72,4.96,28.36)", "feet (-2.813, 10.494, 32.704)",
+        # Re-pinned 2026-10-19 (the sword's trail hits the bosses' parts): three swings break the stun and Toal is on
+        # his body by the `pos` at t2429, (-0.336, 11.610, 31.946) [not chased why]; the first goto drops him to the
+        # floor, the walk and the stop at hit2's face, (-2.815, 10.612, 32.710), are as before within 0.12, and the two
+        # 11-damage hits on the core land.
+        expect=["[boss] Velagunder: HP 875 STR 63 DEF 54 lv 8", "feet (-0.336, 11.610, 31.946)", "stun 0 STUNNED",
+                "goto ends at (-6.76,4.91,28.45)", "feet (-2.815, 10.612, 32.710)",
                 "hit boss part 0 (DEF 54): 11 dmg, HP 875", "hit boss part 0 (DEF 54): 11 dmg, HP 864"]),
     # Velagunder's two collision GoMeshes (VELAGUNDER.md §2.3, EXPORT 00505810.c:276-316 / 005062d0.c:686-713): the ctor
     # makes boss01_hit1 / boss01_hit2 (BOSS01_HIT1/2.YMO, material "stopper": not drawn) and the brain places them at
@@ -3562,7 +3568,8 @@ CASES.update({
                 # draw and no HP, and the frustum scale): the bite at t3893, the mouth at (0.489, 0.317).
                 # Re-pinned 2026-10-18 (boss01_hit1/2 make his trunk solid: the pilot stands elsewhere on the floor, so
                 # the fight runs another course): the bite at t3878, the mouth at (0.527, 0.317).
-                "ZoomBlur(0.3800, -0.0012)", "ZoomBlur(0.4000, -0.0200)", "draw strength 0.3800 alpha 97 taps 3 centre (0.527, 0.317)"]),
+                # Re-pinned 2026-10-19 (the sword's trail hits the bosses' parts): the bite at t3808, the mouth at (0.542, 0.346).
+                "ZoomBlur(0.3800, -0.0012)", "ZoomBlur(0.4000, -0.0200)", "draw strength 0.3800 alpha 97 taps 3 centre (0.542, 0.346)"]),
     # The boss hit flash (§3.2, FUN_00504140): the stun part's damage sets obj+0x2a0 = 1.65, the brain's tail decays
     # it once (1.575) before the draw, whose additive colour is (107, 55, 19) / 255 x 0.5 x (1.575 - 0.65).
     # (t2040, was t2034: since e44f09f the first hit on the re-bound hull lands 6 ticks later; the values are the same.)
