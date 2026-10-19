@@ -2069,7 +2069,7 @@ title_again:
     // anchoring (sphere centre = origin + CASTINFO+0x54) and the attack-box heights are
     // re-derived against the floating origin — so it stays INVENTED for now.
     const float kCharH = 2.0f;               // INVENTED — see above
-    const float kCharRadius = 0.45f;         // INVENTED — pairs with kCharH, not pm.radius()
+    const float kCharRadius = 0.45f;         // INVENTED — the plate stand-in's pad and a pilot; the wall push uses pm.radius()
     const float kStepUp = 0.6f;              // INVENTED — no source found
     // Walk/run speed is the engine's per-tick product now (physics_player.hpp
     // player_speed): CASTINFO+0x48 x stick x anime_Movable, x2.2 x a per-character
@@ -7837,7 +7837,7 @@ title_again:
                 const float px0 = feet.x, pz0 = feet.z;
                 #include "view_xso13_force.inl"
                 if (feet.x != px0 || feet.z != pz0) {
-                    const Vec3 body = resolve_walls(phys_mesh(room), {feet.x, feet.y + kStepUp, feet.z}, kCharRadius,
+                    const Vec3 body = resolve_walls(phys_mesh(room), {feet.x, feet.y + kStepUp, feet.z}, pm.radius(),
                                                     std::max(kCharH - kStepUp, 0.5f));
                     feet.x = body.x; feet.z = body.z;
                 }
@@ -7946,7 +7946,10 @@ title_again:
             // Play mode: WASD moves the CHARACTER relative to the fixed camera; the
             // camera follows to keep her centred. Movement basis = the camera's
             // horizontal forward (into screen) and right.
-            const float eye = kCharH, radius = kCharRadius;
+            // The wall push keeps the engine's sphere radius from every wall: +0x328 = CASTINFO +0x34 x 0.9, 0.675 for
+            // Yunica (FUN_0045a510 sweeps that sphere, 0x45b2eb). [approx] still a horizontal push-out of a capsule
+            // from kStepUp to kCharH over the feet, not the sweep of one sphere about the origin.
+            const float eye = kOriginH + pm.radius(), radius = pm.radius();   // the sphere's top: origin + r
             // anime_Movable is a movement-speed SCALE, not a boolean, and it is a large
             // part of why the three feel different: Yunica's swing drops it to 0 (rooted
             // through the commit), Hugo keeps a full 1.0, Toal goes 0.80 -> 0.05 so he

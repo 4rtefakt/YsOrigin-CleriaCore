@@ -6,8 +6,8 @@
 // the mesh's script when no fix is held, +0x298 & 0x880 is clear and the toucher is the player
 // [BYTES 0x45a4a0..0x45a4f8] (BARRIER_OBJECTS.md §1).
 // [STAND-IN] the side contact: CleriaCore's wall push (resolve_walls) is not the engine's sweep and
-// keeps no contact record, so a side contact is the player's body sphere (kCharRadius + 0.05 at
-// the origin height) overlapping the object's own collision triangles.
+// keeps no contact record, so a side contact is the player's sphere (pm.radius(), the radius the wall
+// push keeps her from walls, + 0.05 at the origin height) overlapping the object's own collision triangles.
 if (events_enabled && !csMgr.world_frozen() && player.hp >= 1)
     for (const SceneTrigger& t : room.mesh.triggers) {
         if (!(t.trigger & 4) || t.script.empty()) continue;
@@ -17,7 +17,7 @@ if (events_enabled && !csMgr.world_frozen() && player.hp >= 1)
         if (!r || r->t1 <= r->t0) continue;
         const MeshObj* mo = meshes.find(ln);
         if (mo && !mo->event_on) continue;                       // Mesh_EnableEvent(off)
-        if (!sphere_overlaps_tris(phys_mesh(room), {feet.x, feet.y + kOriginH, feet.z}, kCharRadius + 0.05f,
+        if (!sphere_overlaps_tris(phys_mesh(room), {feet.x, feet.y + kOriginH, feet.z}, pm.radius() + 0.05f,
                                   r->t0, r->t1))
             continue;
         std::string stem = t.script_stem;
